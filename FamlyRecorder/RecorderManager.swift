@@ -184,7 +184,7 @@ final class RecorderManager: ObservableObject {
 
     private func configureAudioSession() throws {
         let audioSession = AVAudioSession.sharedInstance()
-        try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothHFP])
+        try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
         try audioSession.setPreferredSampleRate(44_100)
         try audioSession.setPreferredIOBufferDuration(0.02)
         try audioSession.setActive(true, options: [])
