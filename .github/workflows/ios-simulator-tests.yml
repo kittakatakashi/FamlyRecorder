@@ -26,6 +26,5 @@ jobs:
 
       - name: Run Lightweight iOS Simulator Tests
         env:
-          CI_DESTINATION: platform=iOS Simulator,OS=latest,name=iPhone 16
           NSUnbufferedIO: "YES"
         run: ./scripts/test-light.sh

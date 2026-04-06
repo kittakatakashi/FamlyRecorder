@@ -16,8 +16,8 @@ if [[ -n "${CI_DESTINATION:-}" ]]; then
   destination="$CI_DESTINATION"
 else
   booted_device_id="$(
-    xcrun simctl list devices booted available \
-      | sed -n 's/.*(\\([A-F0-9-]\\{36\\}\\)) (Booted)/\\1/p' \
+    xcrun simctl list devices available \
+      | sed -n 's/.*(\\([A-F0-9-]\\{36\\}\\)).*(Booted).*/\\1/p' \
       | head -n 1
   )"
 
@@ -26,7 +26,7 @@ else
   else
     fallback_device_id="$(
       xcrun simctl list devices available \
-        | sed -n 's/.*iPhone[^()]* (\\([A-F0-9-]\\{36\\}\\)) (Shutdown)/\\1/p' \
+        | sed -n 's/.*iPhone[^()]* (\\([A-F0-9-]\\{36\\}\\)).*(available).*/\\1/p' \
         | head -n 1
     )"
 
