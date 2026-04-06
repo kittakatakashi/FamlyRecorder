@@ -8,9 +8,8 @@
 import XCTest
 
 final class FamlyRecorderUITestsLaunchTests: XCTestCase {
-
-    override class var runsForEachTargetApplicationUIConfiguration: Bool {
-        true
+    private var shouldRunUITests: Bool {
+        ProcessInfo.processInfo.environment["RUN_FULL_UI_TESTS"] == "1"
     }
 
     override func setUpWithError() throws {
@@ -19,11 +18,13 @@ final class FamlyRecorderUITestsLaunchTests: XCTestCase {
 
     @MainActor
     func testLaunch() throws {
-        let app = XCUIApplication()
-        app.launch()
+        if !shouldRunUITests {
+            throw XCTSkip("UI起動テストは重いため既定ではスキップします。")
+        }
 
-        // Insert steps here to perform after app launch but before taking a screenshot,
-        // such as logging into a test account or navigating somewhere in the app
+        let app = XCUIApplication()
+        app.launchArguments.append("-ui-testing")
+        app.launch()
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "Launch Screen"

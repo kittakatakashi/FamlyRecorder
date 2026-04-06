@@ -6,27 +6,20 @@
 //
 
 import SwiftUI
-import SwiftData
 
 @main
 struct FamlyRecorderApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+    private let recorder: RecorderManager
 
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
+    init() {
+        let arguments = ProcessInfo.processInfo.arguments
+        let mode: RecorderManager.Mode = arguments.contains("-ui-testing") ? .simulated : .live
+        recorder = RecorderManager(mode: mode)
+    }
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(recorder: recorder)
         }
-        .modelContainer(sharedModelContainer)
     }
 }
