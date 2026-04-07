@@ -196,6 +196,27 @@ struct FamlyRecorderTests {
         #expect(recorder.lastSavedFileName == nil)
     }
 
+
+    @MainActor
+    @Test func simulatedRecorderCanStartNewRecordingImmediatelyAfterStop() {
+        let recorder = RecorderManager(mode: .simulated)
+        recorder.prepare()
+
+        recorder.startClipRecording()
+        recorder.stopClipRecording()
+        let firstSavedFile = recorder.lastSavedFileName
+
+        #expect(firstSavedFile?.hasSuffix(".wav") == true)
+        #expect(recorder.canControlRecording)
+        #expect(!recorder.isRecordingClip)
+
+        recorder.startClipRecording()
+
+        #expect(recorder.isRecordingClip)
+        #expect(recorder.lastSavedFileName == nil)
+        #expect(recorder.canControlRecording)
+    }
+
     @MainActor
     @Test func simulatedRecorderStatusTextReflectsRecordingState() {
         let recorder = RecorderManager(mode: .simulated)
