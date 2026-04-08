@@ -99,6 +99,35 @@ struct FamlyRecorderTests {
         #expect(url.lastPathComponent.contains("-"))
     }
 
+
+
+    // MARK: - VoiceActivityDetector
+
+    @Test func voiceActivityDetectorKeepsNoiseScoreLow() {
+        var detector = VoiceActivityDetector()
+
+        for _ in 0..<40 {
+            _ = detector.score(forDecibel: -58)
+        }
+
+        let score = detector.score(forDecibel: -56)
+        #expect(score < 0.35)
+    }
+
+    @Test func voiceActivityDetectorRaisesScoreForSpeechLikeLevel() {
+        var detector = VoiceActivityDetector()
+
+        for _ in 0..<40 {
+            _ = detector.score(forDecibel: -60)
+        }
+
+        var score: Float = 0
+        for _ in 0..<8 {
+            score = detector.score(forDecibel: -24)
+        }
+
+        #expect(score > 0.7)
+    }
     // MARK: - RecorderManager (simulated)
 
     @MainActor
@@ -241,6 +270,76 @@ struct FamlyRecorderTests {
         #expect(recorder.bufferStatusText.contains("30"))
     }
 
+
+
+    @MainActor
+    @Test func simulatedRecorderStartsAutomaticallyWhenSpeechDetected() {
+        let recorder = RecorderManager(mode: .simulated)
+        recorder.prepare()
+
+        recorder.handleVoiceActivitySample(isSpeechDetected: true, timestamp: Date(timeIntervalSince1970: 100))
+        recorder.handleVoiceActivitySample(isSpeechDetected: true, timestamp: Date(timeIntervalSince1970: 100.5))
+
+        #expect(recorder.isRecordingClip)
+        #expect(recorder.lastSavedFileName == nil)
+    }
+
+    @MainActor
+    @Test func simulatedRecorderStopsAfterSilenceWindow() {
+        let recorder = RecorderManager(mode: .simulated)
+        recorder.prepare()
+
+        recorder.handleVoiceActivitySample(isSpeechDetected: true, timestamp: Date(timeIntervalSince1970: 200))
+        recorder.handleVoiceActivitySample(isSpeechDetected: true, timestamp: Date(timeIntervalSince1970: 200.5))
+        #expect(recorder.isRecordingClip)
+
+        recorder.handleVoiceActivitySample(isSpeechDetected: false, timestamp: Date(timeIntervalSince1970: 201.0))
+        recorder.handleVoiceActivitySample(isSpeechDetected: false, timestamp: Date(timeIntervalSince1970: 202.3))
+
+        #expect(!recorder.isRecordingClip)
+        #expect(recorder.lastSavedFileName?.hasSuffix(".wav") == true)
+    }
+
+    @MainActor
+    @Test func simulatedRecorderKeepsRecordingWhileSpeechContinues() {
+        let recorder = RecorderManager(mode: .simulated)
+        recorder.prepare()
+
+        recorder.handleVoiceActivitySample(isSpeechDetected: true, timestamp: Date(timeIntervalSince1970: 300))
+        recorder.handleVoiceActivitySample(isSpeechDetected: true, timestamp: Date(timeIntervalSince1970: 300.5))
+        recorder.handleVoiceActivitySample(isSpeechDetected: false, timestamp: Date(timeIntervalSince1970: 301.0))
+        recorder.handleVoiceActivitySample(isSpeechDetected: true, timestamp: Date(timeIntervalSince1970: 301.1))
+        recorder.handleVoiceActivitySample(isSpeechDetected: false, timestamp: Date(timeIntervalSince1970: 301.9))
+
+        #expect(recorder.isRecordingClip)
+    }
+
+
+    @MainActor
+    @Test func simulatedRecorderIgnoresShortNoiseBursts() {
+        let recorder = RecorderManager(mode: .simulated)
+        recorder.prepare()
+
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 400))
+        recorder.handleVoiceActivityScore(0.4, timestamp: Date(timeIntervalSince1970: 400.1))
+        recorder.handleVoiceActivityScore(0.2, timestamp: Date(timeIntervalSince1970: 400.2))
+
+        #expect(!recorder.isRecordingClip)
+    }
+
+    @MainActor
+    @Test func simulatedRecorderRequiresSustainedSpeechToStartConversation() {
+        let recorder = RecorderManager(mode: .simulated)
+        recorder.prepare()
+
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 500.0))
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 500.2))
+        #expect(!recorder.isRecordingClip)
+
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 500.4))
+
+        #expect(recorder.isRecordingClip)
+    }
     @MainActor
     @Test func dismissErrorClearsErrorMessage() {
         let recorder = RecorderManager(mode: .simulated)

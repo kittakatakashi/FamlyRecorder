@@ -24,7 +24,7 @@ struct ContentView: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 20) {
                 statusCard
-                controlButton
+                autoRecordingSection
                 savedFileSection
                 Spacer()
             }
@@ -62,23 +62,15 @@ struct ContentView: View {
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
-    private var controlButton: some View {
-        Button {
-            if recorder.isRecordingClip {
-                recorder.stopClipRecording()
-            } else {
-                recorder.startClipRecording()
-            }
-        } label: {
-            Text(recorder.isRecordingClip ? "録音停止" : "録音開始")
-                .font(.title3.bold())
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 18)
+    private var autoRecordingSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("自動録音")
+                .font(.headline)
+            Text("会話を検知すると録音を開始し、会話が止まると自動で録音を停止します。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("autoRecordingText")
         }
-        .accessibilityIdentifier("recordButton")
-        .buttonStyle(.borderedProminent)
-        .tint(recorder.isRecordingClip ? .red : .blue)
-        .disabled(!recorder.canControlRecording)
     }
 
     private var savedFileSection: some View {
