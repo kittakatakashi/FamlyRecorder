@@ -16,6 +16,13 @@ final class RecorderManager: ObservableObject {
         case simulated
     }
 
+    enum ConversationState {
+        case idle
+        case possibleSpeech
+        case inConversation
+        case possibleEnd
+    }
+
     @Published private(set) var isPrepared = false
     @Published private(set) var isBuffering = false
     @Published private(set) var isRecordingClip = false
@@ -28,6 +35,10 @@ final class RecorderManager: ObservableObject {
     private let processingQueue = DispatchQueue(label: "FamlyRecorder.audio-processing")
     private let ringBufferDuration: TimeInterval = 30
     private let preRecordDuration: TimeInterval = 15
+    private let conversationStartThreshold: Float = 0.65
+    private let conversationContinueThreshold: Float = 0.45
+    private let minimumSpeechDurationToStart: TimeInterval = 0.35
+    private let silenceDurationToStop: TimeInterval = 1.2
     private let mode: Mode
 
     private var audioFormat: AVAudioFormat?
@@ -35,6 +46,9 @@ final class RecorderManager: ObservableObject {
     private var activeWriter: AVAudioFile?
     private var activeRecordingURL: URL?
     private var hasInstalledTap = false
+    private var voiceActivityDetector = VoiceActivityDetector()
+    private var conversationState: ConversationState = .idle
+    private var stateChangedAt: Date?
 
     init(mode: Mode = .live) {
         self.mode = mode
@@ -57,7 +71,7 @@ final class RecorderManager: ObservableObject {
     }
 
     var recordingStatusText: String {
-        isRecordingClip ? "録音中: 過去15秒を含めて保存しています。" : "待機中: 「録音開始」で過去15秒つき保存を開始します。"
+        isRecordingClip ? "録音中: 会話を検知して保存中です。" : "待機中: 会話を検知すると自動で録音を開始します。"
     }
 
     func prepare() {
@@ -144,6 +158,8 @@ final class RecorderManager: ObservableObject {
             activeRecordingURL = nil
             isRecordingClip = false
             lastSavedFileName = savedURL?.lastPathComponent
+            conversationState = .idle
+            stateChangedAt = nil
             return
         }
 
@@ -157,8 +173,64 @@ final class RecorderManager: ObservableObject {
             Task { @MainActor in
                 self.isRecordingClip = false
                 self.lastSavedFileName = savedURL?.lastPathComponent
+                self.conversationState = .idle
+                self.stateChangedAt = nil
             }
         }
+    }
+
+
+    func handleVoiceActivityScore(_ score: Float, timestamp: Date = Date()) {
+        guard canControlRecording else { return }
+
+        switch conversationState {
+        case .idle:
+            guard score >= conversationStartThreshold else { return }
+            conversationState = .possibleSpeech
+            stateChangedAt = timestamp
+
+        case .possibleSpeech:
+            if score < conversationContinueThreshold {
+                conversationState = .idle
+                stateChangedAt = nil
+                return
+            }
+
+            let elapsed = timestamp.timeIntervalSince(stateChangedAt ?? timestamp)
+            if elapsed >= minimumSpeechDurationToStart {
+                if !isRecordingClip {
+                    startClipRecording()
+                }
+                conversationState = .inConversation
+                stateChangedAt = timestamp
+            }
+
+        case .inConversation:
+            if score < conversationContinueThreshold {
+                conversationState = .possibleEnd
+                stateChangedAt = timestamp
+            }
+
+        case .possibleEnd:
+            if score >= conversationStartThreshold {
+                conversationState = .inConversation
+                stateChangedAt = timestamp
+                return
+            }
+
+            let elapsed = timestamp.timeIntervalSince(stateChangedAt ?? timestamp)
+            if elapsed >= silenceDurationToStop {
+                if isRecordingClip {
+                    stopClipRecording()
+                }
+                conversationState = .idle
+                stateChangedAt = nil
+            }
+        }
+    }
+
+    func handleVoiceActivitySample(isSpeechDetected: Bool, timestamp: Date = Date()) {
+        handleVoiceActivityScore(isSpeechDetected ? 1 : 0, timestamp: timestamp)
     }
 
     func dismissError() {
@@ -224,6 +296,11 @@ final class RecorderManager: ObservableObject {
                         self.errorMessage = "録音データの書き込みに失敗しました: \(error.localizedDescription)"
                     }
                 }
+            }
+
+            let score = self.voiceActivityDetector.score(for: copiedBuffer)
+            Task { @MainActor in
+                self.handleVoiceActivityScore(score)
             }
 
             Task { @MainActor in
@@ -329,6 +406,7 @@ final class RecorderManager: ObservableObject {
     private func duration(for buffer: AVAudioPCMBuffer) -> TimeInterval {
         TimeInterval(buffer.frameLength) / buffer.format.sampleRate
     }
+
 
     private func requireAudioFormat() throws -> AVAudioFormat {
         if let audioFormat {
