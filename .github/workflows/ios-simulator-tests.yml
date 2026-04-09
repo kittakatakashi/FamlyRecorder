@@ -33,7 +33,7 @@ jobs:
     name: Build & Upload iOS Simulator App to Appetize
     runs-on: macos-15
     timeout-minutes: 30
-    if: github.event_name != 'pull_request'
+    needs: unit-tests
 
     steps:
       - name: Checkout
@@ -76,6 +76,7 @@ jobs:
         id: upload
         env:
           APPETIZE_API_TOKEN: ${{ secrets.APPETIZE_API_TOKEN }}
+          APPETIZE_PUBLIC_KEY: ${{ secrets.APPETIZE_PUBLIC_KEY }}
         run: |
           set -euo pipefail
           if [[ -z "${APPETIZE_API_TOKEN:-}" ]]; then
@@ -85,12 +86,22 @@ jobs:
 
           response_file="$(mktemp)"
 
-          curl -sS \
-            -u "${APPETIZE_API_TOKEN}:" \
-            -X POST "https://api.appetize.io/v1/apps" \
-            -F "file=@FamlyRecorder-simulator.zip" \
-            -F "platform=ios" \
-            > "${response_file}"
+          if [[ -n "${APPETIZE_PUBLIC_KEY:-}" ]]; then
+            # Update an existing Appetize app to keep the URL stable.
+            curl -fsS \
+              -u "${APPETIZE_API_TOKEN}:" \
+              -X PUT "https://api.appetize.io/v1/apps/${APPETIZE_PUBLIC_KEY}" \
+              -F "file=@FamlyRecorder-simulator.zip" \
+              > "${response_file}"
+          else
+            # Fallback: create a new Appetize app if a public key is not configured.
+            curl -fsS \
+              -u "${APPETIZE_API_TOKEN}:" \
+              -X POST "https://api.appetize.io/v1/apps" \
+              -F "file=@FamlyRecorder-simulator.zip" \
+              -F "platform=ios" \
+              > "${response_file}"
+          fi
 
           python3 - "${response_file}" <<'PY'
           import json
