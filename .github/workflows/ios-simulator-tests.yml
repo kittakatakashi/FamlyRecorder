@@ -28,3 +28,107 @@ jobs:
         env:
           NSUnbufferedIO: "YES"
         run: ./scripts/test-light.sh
+
+  appetize-upload:
+    name: Build & Upload iOS Simulator App to Appetize
+    runs-on: macos-15
+    timeout-minutes: 30
+    needs: unit-tests
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Build iOS Simulator .app
+        env:
+          NSUnbufferedIO: "YES"
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project FamlyRecorder.xcodeproj \
+            -scheme FamlyRecorder \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath ./DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+          APP_PATH="./DerivedData/Build/Products/Debug-iphonesimulator/FamlyRecorder.app"
+          if [[ ! -d "${APP_PATH}" ]]; then
+            echo "Built app not found at ${APP_PATH}" >&2
+            exit 1
+          fi
+
+          ditto -c -k --sequesterRsrc --keepParent "${APP_PATH}" FamlyRecorder-simulator.zip
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FamlyRecorder-simulator-app
+          path: FamlyRecorder-simulator.zip
+          if-no-files-found: error
+
+      - name: Upload zip to Appetize
+        id: upload
+        env:
+          APPETIZE_API_TOKEN: ${{ secrets.APPETIZE_API_TOKEN }}
+          APPETIZE_PUBLIC_KEY: ${{ secrets.APPETIZE_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${APPETIZE_API_TOKEN:-}" ]]; then
+            echo "Missing APPETIZE_API_TOKEN. Add it as a GitHub Actions repository secret." >&2
+            exit 1
+          fi
+
+          response_file="$(mktemp)"
+
+          if [[ -n "${APPETIZE_PUBLIC_KEY:-}" ]]; then
+            # Update an existing Appetize app to keep the URL stable.
+            curl -fsS \
+              -u "${APPETIZE_API_TOKEN}:" \
+              -X PUT "https://api.appetize.io/v1/apps/${APPETIZE_PUBLIC_KEY}" \
+              -F "file=@FamlyRecorder-simulator.zip" \
+              > "${response_file}"
+          else
+            # Fallback: create a new Appetize app if a public key is not configured.
+            curl -fsS \
+              -u "${APPETIZE_API_TOKEN}:" \
+              -X POST "https://api.appetize.io/v1/apps" \
+              -F "file=@FamlyRecorder-simulator.zip" \
+              -F "platform=ios" \
+              > "${response_file}"
+          fi
+
+          python3 - "${response_file}" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          response_path = pathlib.Path(sys.argv[1])
+          data = json.loads(response_path.read_text())
+
+          if "error" in data:
+              raise SystemExit(f"Appetize API error: {data['error']}")
+
+          public_key = data.get("publicKey")
+          if not public_key:
+              raise SystemExit(f"Appetize upload succeeded but publicKey was missing: {data}")
+
+          app_url = f"https://appetize.io/app/{public_key}"
+
+          github_output = pathlib.Path(__import__("os").environ["GITHUB_OUTPUT"])
+          with github_output.open("a", encoding="utf-8") as fh:
+              fh.write(f"public_key={public_key}\n")
+              fh.write(f"app_url={app_url}\n")
+          PY
+
+      - name: Add Appetize URL to workflow summary
+        run: |
+          echo "### Appetize Preview" >> "${GITHUB_STEP_SUMMARY}"
+          echo "" >> "${GITHUB_STEP_SUMMARY}"
+          echo "- Public key: \`${{ steps.upload.outputs.public_key }}\`" >> "${GITHUB_STEP_SUMMARY}"
+          echo "- URL: ${{ steps.upload.outputs.app_url }}" >> "${GITHUB_STEP_SUMMARY}"
