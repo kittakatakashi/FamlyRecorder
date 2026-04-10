@@ -9,6 +9,7 @@ import SwiftUI
 
 @main
 struct FamlyRecorderApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     private let recorder: RecorderManager
 
     init() {
@@ -20,6 +21,9 @@ struct FamlyRecorderApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(recorder: recorder)
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            recorder.setBackgroundMode(enabled: newPhase == .background)
         }
     }
 }

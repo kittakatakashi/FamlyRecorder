@@ -29,6 +29,7 @@ final class RecorderManager: ObservableObject {
     @Published private(set) var permissionGranted = false
     @Published private(set) var bufferedSeconds: TimeInterval = 0
     @Published private(set) var lastSavedFileName: String?
+    @Published private(set) var isLowPowerBackgroundMode = false
     @Published var errorMessage: String?
 
     private let engine = AVAudioEngine()
@@ -39,6 +40,12 @@ final class RecorderManager: ObservableObject {
     private let conversationContinueThreshold: Float = 0.45
     private let minimumSpeechDurationToStart: TimeInterval = 0.35
     private let silenceDurationToStop: TimeInterval = 1.2
+    private let foregroundIOBufferDuration: TimeInterval = 0.02
+    private let backgroundIOBufferDuration: TimeInterval = 0.12
+    private let foregroundVADStride = 1
+    private let backgroundVADStride = 4
+    private let foregroundStatusUpdateInterval: TimeInterval = 0.08
+    private let backgroundStatusUpdateInterval: TimeInterval = 1.0
     private let mode: Mode
 
     private var audioFormat: AVAudioFormat?
@@ -49,6 +56,8 @@ final class RecorderManager: ObservableObject {
     private var voiceActivityDetector = VoiceActivityDetector()
     private var conversationState: ConversationState = .idle
     private var stateChangedAt: Date?
+    private var processedBufferCount = 0
+    private var lastStatusUpdateAt: Date = .distantPast
 
     init(mode: Mode = .live) {
         self.mode = mode
@@ -72,6 +81,10 @@ final class RecorderManager: ObservableObject {
 
     var recordingStatusText: String {
         isRecordingClip ? "録音中: 会話を検知して保存中です。" : "待機中: 会話を検知すると自動で録音を開始します。"
+    }
+
+    var energyModeStatusText: String {
+        isLowPowerBackgroundMode ? "省電力モード: バックグラウンド最適化中" : "通常モード: 前景で高感度検知中"
     }
 
     func prepare() {
@@ -102,6 +115,24 @@ final class RecorderManager: ObservableObject {
                 isBuffering = true
             } catch {
                 errorMessage = "録音の準備に失敗しました: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func setBackgroundMode(enabled: Bool) {
+        guard mode == .live else { return }
+        guard isLowPowerBackgroundMode != enabled else { return }
+
+        isLowPowerBackgroundMode = enabled
+
+        processingQueue.async { [weak self] in
+            guard let self else { return }
+            do {
+                try self.configureAudioSession()
+            } catch {
+                Task { @MainActor in
+                    self.errorMessage = "バックグラウンド設定の更新に失敗しました: \(error.localizedDescription)"
+                }
             }
         }
     }
@@ -256,9 +287,10 @@ final class RecorderManager: ObservableObject {
 
     private func configureAudioSession() throws {
         let audioSession = AVAudioSession.sharedInstance()
-        try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
+        try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers])
         try audioSession.setPreferredSampleRate(44_100)
-        try audioSession.setPreferredIOBufferDuration(0.02)
+        let preferredBuffer = isLowPowerBackgroundMode ? backgroundIOBufferDuration : foregroundIOBufferDuration
+        try audioSession.setPreferredIOBufferDuration(preferredBuffer)
         try audioSession.setActive(true, options: [])
     }
 
@@ -284,6 +316,7 @@ final class RecorderManager: ObservableObject {
 
             let duration = self.duration(for: copiedBuffer)
             self.ringBuffer.append(copiedBuffer, duration: duration, keepingMaxDuration: self.ringBufferDuration)
+            self.processedBufferCount += 1
 
             if let writer = self.activeWriter {
                 do {
@@ -298,10 +331,18 @@ final class RecorderManager: ObservableObject {
                 }
             }
 
-            let score = self.voiceActivityDetector.score(for: copiedBuffer)
-            Task { @MainActor in
-                self.handleVoiceActivityScore(score)
+            let vadStride = self.isLowPowerBackgroundMode ? self.backgroundVADStride : self.foregroundVADStride
+            if self.processedBufferCount % vadStride == 0 {
+                let score = self.voiceActivityDetector.score(for: copiedBuffer)
+                Task { @MainActor in
+                    self.handleVoiceActivityScore(score)
+                }
             }
+
+            let now = Date()
+            let statusInterval = self.isLowPowerBackgroundMode ? self.backgroundStatusUpdateInterval : self.foregroundStatusUpdateInterval
+            guard now.timeIntervalSince(self.lastStatusUpdateAt) >= statusInterval else { return }
+            self.lastStatusUpdateAt = now
 
             Task { @MainActor in
                 self.isBuffering = true
