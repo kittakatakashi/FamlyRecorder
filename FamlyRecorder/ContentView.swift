@@ -51,6 +51,8 @@ struct ContentView: View {
                 .accessibilityIdentifier("bufferStatusLabel")
             Label(recorder.recordingStatusText, systemImage: recorder.isRecordingClip ? "record.circle.fill" : "record.circle")
                 .accessibilityIdentifier("recordingStatusLabel")
+            Label(recorder.energyModeStatusText, systemImage: recorder.isLowPowerBackgroundMode ? "leaf.fill" : "bolt.fill")
+                .accessibilityIdentifier("energyModeStatusLabel")
 
             if let fileName = recorder.lastSavedFileName {
                 Label("保存済み: \(fileName)", systemImage: "folder.fill")
