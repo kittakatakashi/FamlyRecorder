@@ -273,37 +273,39 @@ struct FamlyRecorderTests {
 
 
     @MainActor
-    @Test func simulatedRecorderStartsAutomaticallyWhenSpeechDetected() {
+    @Test func simulatedRecorderDoesNotStartAutomaticallyWhenSpeechDetected() {
         let recorder = RecorderManager(mode: .simulated)
         recorder.prepare()
 
         recorder.handleVoiceActivitySample(isSpeechDetected: true, timestamp: Date(timeIntervalSince1970: 100))
         recorder.handleVoiceActivitySample(isSpeechDetected: true, timestamp: Date(timeIntervalSince1970: 100.5))
 
-        #expect(recorder.isRecordingClip)
+        #expect(!recorder.isRecordingClip)
         #expect(recorder.lastSavedFileName == nil)
     }
 
     @MainActor
-    @Test func simulatedRecorderStopsAfterSilenceWindow() {
+    @Test func simulatedRecorderDoesNotStopAutomaticallyAfterSilenceWindow() {
         let recorder = RecorderManager(mode: .simulated)
         recorder.prepare()
+        recorder.startClipRecording()
+        #expect(recorder.isRecordingClip)
 
         recorder.handleVoiceActivitySample(isSpeechDetected: true, timestamp: Date(timeIntervalSince1970: 200))
         recorder.handleVoiceActivitySample(isSpeechDetected: true, timestamp: Date(timeIntervalSince1970: 200.5))
-        #expect(recorder.isRecordingClip)
 
         recorder.handleVoiceActivitySample(isSpeechDetected: false, timestamp: Date(timeIntervalSince1970: 201.0))
         recorder.handleVoiceActivitySample(isSpeechDetected: false, timestamp: Date(timeIntervalSince1970: 202.3))
 
-        #expect(!recorder.isRecordingClip)
-        #expect(recorder.lastSavedFileName?.hasSuffix(".wav") == true)
+        #expect(recorder.isRecordingClip)
+        #expect(recorder.lastSavedFileName == nil)
     }
 
     @MainActor
     @Test func simulatedRecorderKeepsRecordingWhileSpeechContinues() {
         let recorder = RecorderManager(mode: .simulated)
         recorder.prepare()
+        recorder.startClipRecording()
 
         recorder.handleVoiceActivitySample(isSpeechDetected: true, timestamp: Date(timeIntervalSince1970: 300))
         recorder.handleVoiceActivitySample(isSpeechDetected: true, timestamp: Date(timeIntervalSince1970: 300.5))
@@ -328,7 +330,7 @@ struct FamlyRecorderTests {
     }
 
     @MainActor
-    @Test func simulatedRecorderRequiresSustainedSpeechToStartConversation() {
+    @Test func simulatedRecorderDoesNotAutoStartEvenWithSustainedSpeech() {
         let recorder = RecorderManager(mode: .simulated)
         recorder.prepare()
 
@@ -338,7 +340,7 @@ struct FamlyRecorderTests {
 
         recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 500.4))
 
-        #expect(recorder.isRecordingClip)
+        #expect(!recorder.isRecordingClip)
     }
     @MainActor
     @Test func dismissErrorClearsErrorMessage() {

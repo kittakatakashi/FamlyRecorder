@@ -200,12 +200,17 @@ final class RecorderManager: ObservableObject {
             let savedURL = self.activeRecordingURL
             self.activeWriter = nil
             self.activeRecordingURL = nil
+            let savedFileName = self.resolvedSavedFileName(from: savedURL)
 
             Task { @MainActor in
                 self.isRecordingClip = false
-                self.lastSavedFileName = savedURL?.lastPathComponent
+                self.lastSavedFileName = savedFileName
                 self.conversationState = .idle
                 self.stateChangedAt = nil
+
+                if savedURL != nil, savedFileName == nil {
+                    self.errorMessage = "録音ファイルの保存確認に失敗しました。空き容量と権限を確認してください。"
+                }
             }
         }
     }
@@ -229,9 +234,9 @@ final class RecorderManager: ObservableObject {
 
             let elapsed = timestamp.timeIntervalSince(stateChangedAt ?? timestamp)
             if elapsed >= minimumSpeechDurationToStart {
-                if !isRecordingClip {
-                    startClipRecording()
-                }
+//                if !isRecordingClip {
+//                    startClipRecording()
+//                }
                 conversationState = .inConversation
                 stateChangedAt = timestamp
             }
@@ -251,9 +256,9 @@ final class RecorderManager: ObservableObject {
 
             let elapsed = timestamp.timeIntervalSince(stateChangedAt ?? timestamp)
             if elapsed >= silenceDurationToStop {
-                if isRecordingClip {
-                    stopClipRecording()
-                }
+//                if isRecordingClip {
+//                    stopClipRecording()
+//                }
                 conversationState = .idle
                 stateChangedAt = nil
             }
@@ -459,7 +464,44 @@ final class RecorderManager: ObservableObject {
 
     private func makeOutputURL() throws -> URL {
         let documentsURL = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-        return RecordingFileStore.outputURL(in: documentsURL, date: Date())
+        try FileManager.default.createDirectory(at: documentsURL, withIntermediateDirectories: true, attributes: nil)
+
+        let baseURL = RecordingFileStore.outputURL(in: documentsURL, date: Date())
+        guard FileManager.default.fileExists(atPath: baseURL.path) else {
+            return baseURL
+        }
+
+        let baseName = baseURL.deletingPathExtension().lastPathComponent
+        let ext = baseURL.pathExtension
+        var suffix = 1
+
+        while true {
+            let candidateName = "\(baseName)-\(suffix)"
+            let candidateURL = documentsURL
+                .appendingPathComponent(candidateName)
+                .appendingPathExtension(ext)
+
+            if !FileManager.default.fileExists(atPath: candidateURL.path) {
+                return candidateURL
+            }
+            suffix += 1
+        }
+    }
+
+    private func resolvedSavedFileName(from savedURL: URL?) -> String? {
+        guard let savedURL else { return nil }
+        let path = savedURL.path
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+
+        guard
+            let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+            let size = attributes[.size] as? NSNumber,
+            size.intValue > 0
+        else {
+            return nil
+        }
+
+        return savedURL.lastPathComponent
     }
 }
 
