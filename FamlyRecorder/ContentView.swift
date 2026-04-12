@@ -103,7 +103,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("保存先")
                 .font(.headline)
-            Text("録音ファイルは「ファイル」Appの「このiPhone内」>「FamlyRecorder」で確認できます。")
+            Text("録音ファイルは「ファイル」Appの「このiPhone内」>「FamlyRecorder」>「FamlyRecorder」で確認できます。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("saveDestinationText")
