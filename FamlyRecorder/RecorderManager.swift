@@ -161,7 +161,18 @@ final class RecorderManager: ObservableObject {
             do {
                 let format = try self.requireAudioFormat()
                 let destination = try self.makeOutputURL()
-                let writer = try AVAudioFile(forWriting: destination, settings: format.settings, commonFormat: format.commonFormat, interleaved: format.isInterleaved)
+                let writer: AVAudioFile
+                let resolvedDestination: URL
+
+                do {
+                    writer = try AVAudioFile(forWriting: destination, settings: format.settings, commonFormat: format.commonFormat, interleaved: format.isInterleaved)
+                    resolvedDestination = destination
+                } catch {
+                    // WAVで端末入力フォーマットをそのまま保存できない環境があるため、CAFへフォールバックする
+                    let cafDestination = destination.deletingPathExtension().appendingPathExtension("caf")
+                    writer = try AVAudioFile(forWriting: cafDestination, settings: format.settings, commonFormat: format.commonFormat, interleaved: format.isInterleaved)
+                    resolvedDestination = cafDestination
+                }
                 let preRoll = self.collectBufferedAudio(last: self.preRecordDuration, format: format)
 
                 for chunk in preRoll {
@@ -169,7 +180,7 @@ final class RecorderManager: ObservableObject {
                 }
 
                 self.activeWriter = writer
-                self.activeRecordingURL = destination
+                self.activeRecordingURL = resolvedDestination
 
                 Task { @MainActor in
                     self.isRecordingClip = true
