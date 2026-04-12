@@ -24,6 +24,7 @@ struct ContentView: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 20) {
                 statusCard
+                recordingControlSection
                 autoRecordingSection
                 savedFileSection
                 Spacer()
@@ -75,11 +76,34 @@ struct ContentView: View {
         }
     }
 
+    private var recordingControlSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("手動録音")
+                .font(.headline)
+
+            HStack(spacing: 12) {
+                Button("録音開始") {
+                    recorder.startClipRecording()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!recorder.canControlRecording || recorder.isRecordingClip)
+                .accessibilityIdentifier("startRecordingButton")
+
+                Button("録音終了") {
+                    recorder.stopClipRecording()
+                }
+                .buttonStyle(.bordered)
+                .disabled(!recorder.isRecordingClip)
+                .accessibilityIdentifier("stopRecordingButton")
+            }
+        }
+    }
+
     private var savedFileSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("保存先")
                 .font(.headline)
-            Text("録音ファイルは「ファイル」Appの「このiPhone内」>「FamlyRecorder」で確認できます。")
+            Text("録音ファイルは「ファイル」Appの「このiPhone内」>「FamlyRecorder」>「FamlyRecorder」で確認できます。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("saveDestinationText")
