@@ -143,13 +143,15 @@ final class RecorderManager: ObservableObject {
         guard canControlRecording else { return }
         guard !isRecordingClip else { return }
 
+        isRecordingClip = true
+        lastSavedFileName = nil
+
         if mode == .simulated {
             do {
                 let destination = try makeOutputURL()
                 activeRecordingURL = destination
-                isRecordingClip = true
-                lastSavedFileName = nil
             } catch {
+                isRecordingClip = false
                 errorMessage = "録音開始に失敗しました: \(error.localizedDescription)"
             }
             return
@@ -170,13 +172,9 @@ final class RecorderManager: ObservableObject {
 
                 self.activeWriter = writer
                 self.activeRecordingURL = destination
-
-                Task { @MainActor in
-                    self.isRecordingClip = true
-                    self.lastSavedFileName = nil
-                }
             } catch {
                 Task { @MainActor in
+                    self.isRecordingClip = false
                     self.errorMessage = "録音開始に失敗しました: \(error.localizedDescription)"
                 }
             }
@@ -236,9 +234,9 @@ final class RecorderManager: ObservableObject {
 
             let elapsed = timestamp.timeIntervalSince(stateChangedAt ?? timestamp)
             if elapsed >= minimumSpeechDurationToStart {
-//                if !isRecordingClip {
-//                    startClipRecording()
-//                }
+                if !isRecordingClip {
+                    startClipRecording()
+                }
                 conversationState = .inConversation
                 stateChangedAt = timestamp
             }
@@ -258,9 +256,9 @@ final class RecorderManager: ObservableObject {
 
             let elapsed = timestamp.timeIntervalSince(stateChangedAt ?? timestamp)
             if elapsed >= silenceDurationToStop {
-//                if isRecordingClip {
-//                    stopClipRecording()
-//                }
+                if isRecordingClip {
+                    stopClipRecording()
+                }
                 conversationState = .idle
                 stateChangedAt = nil
             }
@@ -503,7 +501,7 @@ final class RecorderManager: ObservableObject {
         guard
             let attributes = try? FileManager.default.attributesOfItem(atPath: path),
             let size = attributes[.size] as? NSNumber,
-            size.intValue > 0
+            size.intValue > 44
         else {
             return nil
         }
