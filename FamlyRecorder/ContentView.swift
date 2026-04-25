@@ -107,6 +107,14 @@ struct ContentView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("saveDestinationText")
+
+            if let url = recorder.lastSavedFileURL {
+                ShareLink(item: url) {
+                    Label("最後の録音を共有", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("shareLastRecordingButton")
+            }
         }
     }
 

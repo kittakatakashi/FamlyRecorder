@@ -29,6 +29,7 @@ final class RecorderManager: ObservableObject {
     @Published private(set) var permissionGranted = false
     @Published private(set) var bufferedSeconds: TimeInterval = 0
     @Published private(set) var lastSavedFileName: String?
+    @Published private(set) var lastSavedFileURL: URL?
     @Published private(set) var isLowPowerBackgroundMode = false
     @Published var errorMessage: String?
 
@@ -145,6 +146,7 @@ final class RecorderManager: ObservableObject {
 
         isRecordingClip = true
         lastSavedFileName = nil
+        lastSavedFileURL = nil
 
         if mode == .simulated {
             do {
@@ -205,6 +207,7 @@ final class RecorderManager: ObservableObject {
             Task { @MainActor in
                 self.isRecordingClip = false
                 self.lastSavedFileName = savedFileName
+                self.lastSavedFileURL = savedFileName != nil ? savedURL : nil
                 self.conversationState = .idle
                 self.stateChangedAt = nil
 
