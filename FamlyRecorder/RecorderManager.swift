@@ -234,9 +234,6 @@ final class RecorderManager: ObservableObject {
 
             let elapsed = timestamp.timeIntervalSince(stateChangedAt ?? timestamp)
             if elapsed >= minimumSpeechDurationToStart {
-                if !isRecordingClip {
-                    startClipRecording()
-                }
                 conversationState = .inConversation
                 stateChangedAt = timestamp
             }
@@ -256,9 +253,6 @@ final class RecorderManager: ObservableObject {
 
             let elapsed = timestamp.timeIntervalSince(stateChangedAt ?? timestamp)
             if elapsed >= silenceDurationToStop {
-                if isRecordingClip {
-                    stopClipRecording()
-                }
                 conversationState = .idle
                 stateChangedAt = nil
             }
