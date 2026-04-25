@@ -273,19 +273,19 @@ struct FamlyRecorderTests {
 
 
     @MainActor
-    @Test func simulatedRecorderDoesNotStartAutomaticallyWhenSpeechDetected() {
+    @Test func simulatedRecorderStartsAutomaticallyWhenSpeechDetected() {
         let recorder = RecorderManager(mode: .simulated)
         recorder.prepare()
 
         recorder.handleVoiceActivitySample(isSpeechDetected: true, timestamp: Date(timeIntervalSince1970: 100))
         recorder.handleVoiceActivitySample(isSpeechDetected: true, timestamp: Date(timeIntervalSince1970: 100.5))
 
-        #expect(!recorder.isRecordingClip)
+        #expect(recorder.isRecordingClip)
         #expect(recorder.lastSavedFileName == nil)
     }
 
     @MainActor
-    @Test func simulatedRecorderDoesNotStopAutomaticallyAfterSilenceWindow() {
+    @Test func simulatedRecorderStopsAutomaticallyAfterSilenceWindow() {
         let recorder = RecorderManager(mode: .simulated)
         recorder.prepare()
         recorder.startClipRecording()
@@ -297,8 +297,8 @@ struct FamlyRecorderTests {
         recorder.handleVoiceActivitySample(isSpeechDetected: false, timestamp: Date(timeIntervalSince1970: 201.0))
         recorder.handleVoiceActivitySample(isSpeechDetected: false, timestamp: Date(timeIntervalSince1970: 202.3))
 
-        #expect(recorder.isRecordingClip)
-        #expect(recorder.lastSavedFileName == nil)
+        #expect(!recorder.isRecordingClip)
+        #expect(recorder.lastSavedFileName?.hasSuffix(".wav") == true)
     }
 
     @MainActor
@@ -330,17 +330,17 @@ struct FamlyRecorderTests {
     }
 
     @MainActor
-    @Test func simulatedRecorderDoesNotAutoStartEvenWithSustainedSpeech() {
+    @Test func simulatedRecorderAutoStartsAfterSustainedSpeech() {
         let recorder = RecorderManager(mode: .simulated)
         recorder.prepare()
 
         recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 500.0))
         recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 500.2))
-        #expect(!recorder.isRecordingClip)
+        #expect(!recorder.isRecordingClip)  // 0.2秒 < 0.35秒なのでまだ未開始
 
         recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 500.4))
 
-        #expect(!recorder.isRecordingClip)
+        #expect(recorder.isRecordingClip)   // 0.4秒 >= 0.35秒で自動開始
     }
     @MainActor
     @Test func simulatedRecorderIsRecordingClipTrueImmediatelyAfterStart() {
