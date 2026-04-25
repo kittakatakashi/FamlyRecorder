@@ -1,9 +1,10 @@
 name: iOS Simulator Tests
 
-on:
-  push:
-  pull_request:
-  workflow_dispatch:
+# on:  # GitHub Actions フリープランの上限のため一時無効化
+#   push:
+#   pull_request:
+#   workflow_dispatch:
+on: []
 
 concurrency:
   group: ios-simulator-tests-${{ github.ref }}
