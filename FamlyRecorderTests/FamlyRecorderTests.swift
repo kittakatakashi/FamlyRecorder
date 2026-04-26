@@ -101,33 +101,6 @@ struct FamlyRecorderTests {
 
 
 
-    // MARK: - VoiceActivityDetector
-
-    @Test func voiceActivityDetectorKeepsNoiseScoreLow() {
-        var detector = VoiceActivityDetector()
-
-        for _ in 0..<40 {
-            _ = detector.score(forDecibel: -58)
-        }
-
-        let score = detector.score(forDecibel: -56)
-        #expect(score < 0.35)
-    }
-
-    @Test func voiceActivityDetectorRaisesScoreForSpeechLikeLevel() {
-        var detector = VoiceActivityDetector()
-
-        for _ in 0..<40 {
-            _ = detector.score(forDecibel: -60)
-        }
-
-        var score: Float = 0
-        for _ in 0..<8 {
-            score = detector.score(forDecibel: -24)
-        }
-
-        #expect(score > 0.7)
-    }
     // MARK: - RecorderManager (simulated)
 
     @MainActor

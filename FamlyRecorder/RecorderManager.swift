@@ -55,7 +55,7 @@ final class RecorderManager: ObservableObject {
     private var activeWriter: AVAudioFile?
     private var activeRecordingURL: URL?
     private var hasInstalledTap = false
-    private var voiceActivityDetector = VoiceActivityDetector()
+    private var speechDetector = SpeechActivityDetector()
     private var conversationState: ConversationState = .idle
     private var stateChangedAt: Date?
     private var processedBufferCount = 0
@@ -113,6 +113,9 @@ final class RecorderManager: ObservableObject {
                 try configureAudioSession()
                 _ = try recordingsDirectoryURL()
                 try installTapIfNeeded()
+                if let format = audioFormat {
+                    try speechDetector.prepare(format: format)
+                }
                 try engine.start()
                 isPrepared = true
                 isBuffering = true
@@ -339,9 +342,10 @@ final class RecorderManager: ObservableObject {
                 }
             }
 
+            self.speechDetector.analyze(copiedBuffer)
             let vadStride = self.isLowPowerBackgroundMode ? self.backgroundVADStride : self.foregroundVADStride
             if self.processedBufferCount % vadStride == 0 {
-                let score = self.voiceActivityDetector.score(for: copiedBuffer)
+                let score = self.speechDetector.speechConfidence
                 Task { @MainActor in
                     self.handleVoiceActivityScore(score)
                 }
