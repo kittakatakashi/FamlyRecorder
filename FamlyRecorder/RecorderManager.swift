@@ -31,6 +31,7 @@ final class RecorderManager: ObservableObject {
     @Published private(set) var lastSavedFileName: String?
     @Published private(set) var lastSavedFileURL: URL?
     @Published private(set) var isLowPowerBackgroundMode = false
+    @Published private(set) var speechConfidenceDebug: Float = 0
     @Published var errorMessage: String?
 
     private let engine = AVAudioEngine()
@@ -347,6 +348,7 @@ final class RecorderManager: ObservableObject {
             if self.processedBufferCount % vadStride == 0 {
                 let score = self.speechDetector.speechConfidence
                 Task { @MainActor in
+                    self.speechConfidenceDebug = score
                     self.handleVoiceActivityScore(score)
                 }
             }
