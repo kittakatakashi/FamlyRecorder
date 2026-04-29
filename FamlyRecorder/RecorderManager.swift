@@ -60,9 +60,15 @@ final class RecorderManager: ObservableObject {
     private var stateChangedAt: Date?
     private var processedBufferCount = 0
     private var lastStatusUpdateAt: Date = .distantPast
+    private var isAudioInterrupted = false
+    private var notificationObservers: [NSObjectProtocol] = []
 
     init(mode: Mode = .live) {
         self.mode = mode
+    }
+
+    deinit {
+        notificationObservers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 
     var canControlRecording: Bool {
@@ -117,10 +123,97 @@ final class RecorderManager: ObservableObject {
                     try speechDetector.prepare(format: format)
                 }
                 try engine.start()
+                setupNotificationObservers()
                 isPrepared = true
                 isBuffering = true
             } catch {
                 errorMessage = "録音の準備に失敗しました: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func setupNotificationObservers() {
+        guard notificationObservers.isEmpty else { return }
+        let session = AVAudioSession.sharedInstance()
+        let center = NotificationCenter.default
+
+        notificationObservers.append(
+            center.addObserver(forName: AVAudioSession.interruptionNotification, object: session, queue: .main) { [weak self] in
+                self?.handleAudioSessionInterruption($0)
+            }
+        )
+        notificationObservers.append(
+            center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: session, queue: .main) { [weak self] _ in
+                self?.handleMediaServicesReset()
+            }
+        )
+        notificationObservers.append(
+            center.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+                self?.handleEngineConfigurationChange()
+            }
+        )
+    }
+
+    private func handleAudioSessionInterruption(_ notification: Notification) {
+        guard let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
+
+        switch type {
+        case .began:
+            isAudioInterrupted = true
+        case .ended:
+            isAudioInterrupted = false
+            let optValue = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            if AVAudioSession.InterruptionOptions(rawValue: optValue).contains(.shouldResume) {
+                restartEngineIfNeeded()
+            }
+        @unknown default:
+            break
+        }
+    }
+
+    private func handleMediaServicesReset() {
+        hasInstalledTap = false
+        speechDetector = SpeechActivityDetector()
+        isAudioInterrupted = false
+        restartEngineWithFullReinit()
+    }
+
+    private func handleEngineConfigurationChange() {
+        guard !isAudioInterrupted else { return }
+        restartEngineIfNeeded()
+    }
+
+    private func restartEngineIfNeeded() {
+        processingQueue.async { [weak self] in
+            guard let self, !self.engine.isRunning else { return }
+            do {
+                try self.configureAudioSession()
+                try self.engine.start()
+            } catch {
+                Task { @MainActor in
+                    self.errorMessage = "録音を再開できませんでした: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func restartEngineWithFullReinit() {
+        processingQueue.async { [weak self] in
+            guard let self else { return }
+            do {
+                try self.configureAudioSession()
+                try self.installTapIfNeeded()
+                if let format = self.audioFormat {
+                    try self.speechDetector.prepare(format: format)
+                }
+                if !self.engine.isRunning {
+                    try self.engine.start()
+                }
+            } catch {
+                Task { @MainActor in
+                    self.errorMessage = "録音を再開できませんでした: \(error.localizedDescription)"
+                }
             }
         }
     }
