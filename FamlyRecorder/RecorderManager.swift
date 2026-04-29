@@ -181,7 +181,9 @@ final class RecorderManager: ObservableObject {
 
     private func handleEngineConfigurationChange() {
         guard !isAudioInterrupted else { return }
-        restartEngineIfNeeded()
+        // 設定変更後はタップが無効になるため、検出器ごと完全再初期化する
+        speechDetector = SpeechActivityDetector()
+        restartEngineWithFullReinit()
     }
 
     private func restartEngineIfNeeded() {
@@ -201,6 +203,11 @@ final class RecorderManager: ObservableObject {
     private func restartEngineWithFullReinit() {
         processingQueue.async { [weak self] in
             guard let self else { return }
+            // 既存タップを明示的に除去してから再インストールする
+            if self.hasInstalledTap {
+                self.engine.inputNode.removeTap(onBus: 0)
+                self.hasInstalledTap = false
+            }
             do {
                 try self.configureAudioSession()
                 try self.installTapIfNeeded()
@@ -228,6 +235,10 @@ final class RecorderManager: ObservableObject {
             guard let self else { return }
             do {
                 try self.configureAudioSession()
+                // スリープ/バックグラウンド中にエンジンが停止していた場合に再起動する
+                if !self.engine.isRunning {
+                    try self.engine.start()
+                }
             } catch {
                 Task { @MainActor in
                     self.errorMessage = "バックグラウンド設定の更新に失敗しました: \(error.localizedDescription)"

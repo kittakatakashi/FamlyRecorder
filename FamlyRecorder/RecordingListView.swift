@@ -186,7 +186,7 @@ private func grouped(_ items: [RecordingItem]) -> [DayGroup] {
     return byDay.keys.sorted(by: >).map { day in
         let dayItems = byDay[day]!
         let byHour = Dictionary(grouping: dayItems) { cal.component(.hour, from: $0.date) }
-        let periods = byHour.keys.sorted(by: >).map { hour -> PeriodGroup in
+        let periods = byHour.keys.sorted().map { hour -> PeriodGroup in
             let ref = cal.date(bySettingHour: hour, minute: 0, second: 0, of: day)!
             return PeriodGroup(id: "\(hour)", label: hourFormatter.string(from: ref), items: byHour[hour]!.sorted { $0.date > $1.date })
         }
