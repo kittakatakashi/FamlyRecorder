@@ -38,8 +38,8 @@ final class RecorderManager: ObservableObject {
     private let processingQueue = DispatchQueue(label: "FamlyRecorder.audio-processing")
     private let ringBufferDuration: TimeInterval = 30
     private let preRecordDuration: TimeInterval = 15
-    private let conversationStartThreshold: Float = 0.65
-    private let conversationContinueThreshold: Float = 0.45
+    private let conversationStartThreshold: Float = 0.40
+    private let conversationContinueThreshold: Float = 0.28
     private let minimumSpeechDurationToStart: TimeInterval = 0.35
     private let silenceDurationToStop: TimeInterval = 1.2
     private let foregroundIOBufferDuration: TimeInterval = 0.02
