@@ -20,7 +20,12 @@ struct FamlyRecorderApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView(recorder: recorder)
+            TabView {
+                ContentView(recorder: recorder)
+                    .tabItem { Label("録音", systemImage: "mic.fill") }
+                RecordingListView()
+                    .tabItem { Label("一覧", systemImage: "list.bullet") }
+            }
         }
         .onChange(of: scenePhase) { _, newPhase in
             recorder.setBackgroundMode(enabled: newPhase == .background)

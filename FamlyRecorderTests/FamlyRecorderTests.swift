@@ -101,6 +101,34 @@ struct FamlyRecorderTests {
 
 
 
+    // MARK: - RecordingFileStore.date(from:)
+
+    @Test func recordingFileDateParsesStandardFileName() {
+        let date = RecordingFileStore.date(from: "recording-20260429-185430.wav")
+        #expect(date != nil)
+        // UTC で 2026-04-29 18:54:30 であることを確認
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        let comps = cal.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date!)
+        #expect(comps.year == 2026)
+        #expect(comps.month == 4)
+        #expect(comps.day == 29)
+        #expect(comps.hour == 18)
+        #expect(comps.minute == 54)
+        #expect(comps.second == 30)
+    }
+
+    @Test func recordingFileDateParsesSuffixedFileName() {
+        let date = RecordingFileStore.date(from: "recording-20260429-185430-1.wav")
+        #expect(date != nil)
+    }
+
+    @Test func recordingFileDateReturnsNilForInvalidFileName() {
+        #expect(RecordingFileStore.date(from: "unknown.wav") == nil)
+        #expect(RecordingFileStore.date(from: "recording-.wav") == nil)
+        #expect(RecordingFileStore.date(from: "") == nil)
+    }
+
     // MARK: - RecorderManager (simulated)
 
     @MainActor

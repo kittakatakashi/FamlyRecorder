@@ -60,6 +60,13 @@ struct TimedRingBuffer<Element> {
     }
 }
 
+struct RecordingItem: Identifiable {
+    let url: URL
+    let date: Date
+    let duration: TimeInterval
+    var id: URL { url }
+}
+
 enum RecordingFileStore {
     static func outputURL(in directory: URL, date: Date) -> URL {
         let formatter = DateFormatter()
@@ -68,5 +75,25 @@ enum RecordingFileStore {
         formatter.dateFormat = "yyyyMMdd-HHmmss"
         let fileName = "recording-\(formatter.string(from: date)).wav"
         return directory.appendingPathComponent(fileName)
+    }
+
+    static func recordingsDirectoryURL() throws -> URL {
+        let docs = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        let dir = docs.appendingPathComponent("FamilyRecorder", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: nil)
+        return dir
+    }
+
+    // "recording-yyyyMMdd-HHmmss.wav" および "-1" サフィックス付きに対応
+    static func date(from fileName: String) -> Date? {
+        let base = URL(fileURLWithPath: fileName).deletingPathExtension().lastPathComponent
+        guard base.hasPrefix("recording-"), base.count >= 25 else { return nil }
+        let start = base.index(base.startIndex, offsetBy: 10)
+        let end   = base.index(start, offsetBy: 15)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter.date(from: String(base[start..<end]))
     }
 }

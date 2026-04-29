@@ -48,7 +48,6 @@ final class RecorderManager: ObservableObject {
     private let backgroundVADStride = 4
     private let foregroundStatusUpdateInterval: TimeInterval = 0.08
     private let backgroundStatusUpdateInterval: TimeInterval = 1.0
-    private let recordingsDirectoryName = "FamilyRecorder"
     private let mode: Mode
 
     private var audioFormat: AVAudioFormat?
@@ -112,7 +111,7 @@ final class RecorderManager: ObservableObject {
                 }
 
                 try configureAudioSession()
-                _ = try recordingsDirectoryURL()
+                _ = try RecordingFileStore.recordingsDirectoryURL()
                 try installTapIfNeeded()
                 if let format = audioFormat {
                     try speechDetector.prepare(format: format)
@@ -472,7 +471,7 @@ final class RecorderManager: ObservableObject {
     }
 
     private func makeOutputURL() throws -> URL {
-        let recordingsDirectoryURL = try recordingsDirectoryURL()
+        let recordingsDirectoryURL = try RecordingFileStore.recordingsDirectoryURL()
         let baseURL = RecordingFileStore.outputURL(in: recordingsDirectoryURL, date: Date())
         guard FileManager.default.fileExists(atPath: baseURL.path) else {
             return baseURL
@@ -493,13 +492,6 @@ final class RecorderManager: ObservableObject {
             }
             suffix += 1
         }
-    }
-
-    private func recordingsDirectoryURL() throws -> URL {
-        let documentsURL = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-        let recordingsDirectoryURL = documentsURL.appendingPathComponent(recordingsDirectoryName, isDirectory: true)
-        try FileManager.default.createDirectory(at: recordingsDirectoryURL, withIntermediateDirectories: true, attributes: nil)
-        return recordingsDirectoryURL
     }
 
     private func resolvedSavedFileName(from savedURL: URL?) -> String? {
