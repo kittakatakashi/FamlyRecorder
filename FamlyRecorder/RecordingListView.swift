@@ -135,7 +135,7 @@ private struct DayGroup: Identifiable {
 
 private struct PeriodGroup: Identifiable {
     let id: String
-    var label: String { id }
+    let label: String
     let items: [RecordingItem]
 }
 
@@ -175,25 +175,21 @@ private func grouped(_ items: [RecordingItem]) -> [DayGroup] {
         return f
     }()
 
+    let hourFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ja_JP")
+        f.dateFormat = "H時"
+        return f
+    }()
+
     let byDay = Dictionary(grouping: items) { cal.startOfDay(for: $0.date) }
     return byDay.keys.sorted(by: >).map { day in
         let dayItems = byDay[day]!
-        let byPeriod = Dictionary(grouping: dayItems) { periodLabel(for: $0.date) }
-        let orderedLabels = ["朝 (5〜12時)", "昼 (12〜17時)", "夕方 (17〜20時)", "夜 (20〜5時)"]
-        let periods = orderedLabels.compactMap { label -> PeriodGroup? in
-            guard let its = byPeriod[label], !its.isEmpty else { return nil }
-            return PeriodGroup(id: label, items: its)
+        let byHour = Dictionary(grouping: dayItems) { cal.component(.hour, from: $0.date) }
+        let periods = byHour.keys.sorted(by: >).map { hour -> PeriodGroup in
+            let ref = cal.date(bySettingHour: hour, minute: 0, second: 0, of: day)!
+            return PeriodGroup(id: "\(hour)", label: hourFormatter.string(from: ref), items: byHour[hour]!.sorted { $0.date > $1.date })
         }
         return DayGroup(id: day, dayLabel: dayFormatter.string(from: day), periods: periods)
-    }
-}
-
-private func periodLabel(for date: Date) -> String {
-    let hour = Calendar.current.component(.hour, from: date)
-    switch hour {
-    case 5..<12:  return "朝 (5〜12時)"
-    case 12..<17: return "昼 (12〜17時)"
-    case 17..<20: return "夕方 (17〜20時)"
-    default:      return "夜 (20〜5時)"
     }
 }
