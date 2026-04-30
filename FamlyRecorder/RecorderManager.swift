@@ -8,6 +8,7 @@
 @preconcurrency import AVFoundation
 import Combine
 import Foundation
+import UIKit
 
 @MainActor
 final class RecorderManager: ObservableObject {
@@ -116,7 +117,7 @@ final class RecorderManager: ObservableObject {
                     return
                 }
 
-                try configureAudioSession()
+                try setupAudioSessionCategory()
                 _ = try RecordingFileStore.recordingsDirectoryURL()
                 try installTapIfNeeded()
                 if let format = audioFormat {
@@ -152,6 +153,17 @@ final class RecorderManager: ObservableObject {
                 self?.handleEngineConfigurationChange()
             }
         )
+        notificationObservers.append(
+            center.addObserver(forName: UIScene.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+                self?.handleWillEnterForeground()
+            }
+        )
+    }
+
+    private func handleWillEnterForeground() {
+        guard mode == .live, isPrepared else { return }
+        speechDetector = SpeechActivityDetector()
+        restartEngineWithFullReinit()
     }
 
     private func handleAudioSessionInterruption(_ notification: Notification) {
@@ -163,10 +175,7 @@ final class RecorderManager: ObservableObject {
             isAudioInterrupted = true
         case .ended:
             isAudioInterrupted = false
-            let optValue = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
-            if AVAudioSession.InterruptionOptions(rawValue: optValue).contains(.shouldResume) {
-                restartEngineIfNeeded()
-            }
+            restartEngineWithFullReinit()
         @unknown default:
             break
         }
@@ -190,7 +199,7 @@ final class RecorderManager: ObservableObject {
         processingQueue.async { [weak self] in
             guard let self, !self.engine.isRunning else { return }
             do {
-                try self.configureAudioSession()
+                try self.setupAudioSessionCategory()
                 try self.engine.start()
             } catch {
                 Task { @MainActor in
@@ -203,13 +212,11 @@ final class RecorderManager: ObservableObject {
     private func restartEngineWithFullReinit() {
         processingQueue.async { [weak self] in
             guard let self else { return }
-            // 既存タップを明示的に除去してから再インストールする
-            if self.hasInstalledTap {
-                self.engine.inputNode.removeTap(onBus: 0)
-                self.hasInstalledTap = false
-            }
+            // hasInstalledTap にかかわらず常に除去してから再インストール
+            self.engine.inputNode.removeTap(onBus: 0)
+            self.hasInstalledTap = false
             do {
-                try self.configureAudioSession()
+                try self.setupAudioSessionCategory()
                 try self.installTapIfNeeded()
                 if let format = self.audioFormat {
                     try self.speechDetector.prepare(format: format)
@@ -231,20 +238,7 @@ final class RecorderManager: ObservableObject {
 
         isLowPowerBackgroundMode = enabled
 
-        processingQueue.async { [weak self] in
-            guard let self else { return }
-            do {
-                try self.configureAudioSession()
-                // スリープ/バックグラウンド中にエンジンが停止していた場合に再起動する
-                if !self.engine.isRunning {
-                    try self.engine.start()
-                }
-            } catch {
-                Task { @MainActor in
-                    self.errorMessage = "バックグラウンド設定の更新に失敗しました: \(error.localizedDescription)"
-                }
-            }
-        }
+        // セッション設定は変更しない。バックグラウンド最適化は VAD stride で行う。
     }
 
     func startClipRecording() {
@@ -400,13 +394,14 @@ final class RecorderManager: ObservableObject {
         }
     }
 
-    private func configureAudioSession() throws {
-        let audioSession = AVAudioSession.sharedInstance()
-        try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers])
-        try audioSession.setPreferredSampleRate(44_100)
-        let preferredBuffer = isLowPowerBackgroundMode ? backgroundIOBufferDuration : foregroundIOBufferDuration
-        try audioSession.setPreferredIOBufferDuration(preferredBuffer)
-        try audioSession.setActive(true, options: [])
+    // カテゴリ設定は prepare() と interruption 後の再開時のみ呼ぶ。setPreferredIOBufferDuration は
+    // エンジン動作中の呼び出しが AVAudioEngineConfigurationChange を誘発するため設定しない。
+    // バックグラウンド最適化は isLowPowerBackgroundMode による VAD stride 間引きで行う。
+    private func setupAudioSessionCategory() throws {
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.playAndRecord, mode: .default, options: [.allowBluetooth, .mixWithOthers])
+        try session.setPreferredSampleRate(44_100)
+        try session.setActive(true, options: [])
     }
 
     private func installTapIfNeeded() throws {
