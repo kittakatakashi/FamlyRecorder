@@ -6,6 +6,7 @@
 //
 
 @preconcurrency import AVFoundation
+import Accelerate
 import Combine
 import Foundation
 import UIKit
@@ -154,16 +155,57 @@ final class RecorderManager: ObservableObject {
             }
         )
         notificationObservers.append(
+            center.addObserver(forName: UIScene.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+                self?.handleDidEnterBackground()
+            }
+        )
+        notificationObservers.append(
             center.addObserver(forName: UIScene.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
                 self?.handleWillEnterForeground()
             }
         )
     }
 
+    private func handleDidEnterBackground() {
+        guard mode == .live, isPrepared else { return }
+        processingQueue.async { [weak self] in
+            guard let self else { return }
+            guard !self.engine.isRunning else { return }
+            do {
+                try self.setupAudioSessionCategory()
+                if !self.hasInstalledTap {
+                    try self.installTapIfNeeded()
+                    if let format = self.audioFormat {
+                        try self.speechDetector.prepare(format: format)
+                    }
+                }
+                try self.engine.start()
+            } catch {
+                Task { @MainActor in
+                    self.errorMessage = "バックグラウンド移行時の録音再開に失敗しました: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
     private func handleWillEnterForeground() {
         guard mode == .live, isPrepared else { return }
-        speechDetector = SpeechActivityDetector()
-        restartEngineWithFullReinit()
+        processingQueue.async { [weak self] in
+            guard let self, !self.engine.isRunning else { return }
+            do {
+                self.speechDetector = SpeechActivityDetector()
+                try self.setupAudioSessionCategory()
+                try self.installTapIfNeeded()
+                if let format = self.audioFormat {
+                    try self.speechDetector.prepare(format: format)
+                }
+                try self.engine.start()
+            } catch {
+                Task { @MainActor in
+                    self.errorMessage = "フォアグラウンド復帰後の録音再開に失敗しました: \(error.localizedDescription)"
+                }
+            }
+        }
     }
 
     private func handleAudioSessionInterruption(_ notification: Notification) {
@@ -190,8 +232,6 @@ final class RecorderManager: ObservableObject {
 
     private func handleEngineConfigurationChange() {
         guard !isAudioInterrupted else { return }
-        // 設定変更後はタップが無効になるため、検出器ごと完全再初期化する
-        speechDetector = SpeechActivityDetector()
         restartEngineWithFullReinit()
     }
 
@@ -212,18 +252,19 @@ final class RecorderManager: ObservableObject {
     private func restartEngineWithFullReinit() {
         processingQueue.async { [weak self] in
             guard let self else { return }
-            // hasInstalledTap にかかわらず常に除去してから再インストール
             self.engine.inputNode.removeTap(onBus: 0)
             self.hasInstalledTap = false
+            if self.engine.isRunning {
+                self.engine.stop()
+            }
+            self.speechDetector = SpeechActivityDetector()
             do {
                 try self.setupAudioSessionCategory()
                 try self.installTapIfNeeded()
                 if let format = self.audioFormat {
                     try self.speechDetector.prepare(format: format)
                 }
-                if !self.engine.isRunning {
-                    try self.engine.start()
-                }
+                try self.engine.start()
             } catch {
                 Task { @MainActor in
                     self.errorMessage = "録音を再開できませんでした: \(error.localizedDescription)"
@@ -441,10 +482,17 @@ final class RecorderManager: ObservableObject {
                 }
             }
 
-            self.speechDetector.analyze(copiedBuffer)
             let vadStride = self.isLowPowerBackgroundMode ? self.backgroundVADStride : self.foregroundVADStride
             if self.processedBufferCount % vadStride == 0 {
-                let score = self.speechDetector.speechConfidence
+                let score: Float
+                if self.isLowPowerBackgroundMode {
+                    // SoundAnalysis は Core ML を使うためバックグラウンドで停止する
+                    // RMS エネルギーベース VAD にフォールバック（CPU のみで動作）
+                    score = self.energyBasedVADScore(copiedBuffer)
+                } else {
+                    self.speechDetector.analyze(copiedBuffer)
+                    score = self.speechDetector.speechConfidence
+                }
                 Task { @MainActor in
                     self.speechConfidenceDebug = score
                     self.handleVoiceActivityScore(score)
@@ -456,9 +504,10 @@ final class RecorderManager: ObservableObject {
             guard now.timeIntervalSince(self.lastStatusUpdateAt) >= statusInterval else { return }
             self.lastStatusUpdateAt = now
 
+            let currentDuration = self.ringBuffer.totalDuration
             Task { @MainActor in
                 self.isBuffering = true
-                self.bufferedSeconds = self.ringBuffer.totalDuration
+                self.bufferedSeconds = currentDuration
             }
         }
     }
@@ -558,6 +607,17 @@ final class RecorderManager: ObservableObject {
 
     private func duration(for buffer: AVAudioPCMBuffer) -> TimeInterval {
         TimeInterval(buffer.frameLength) / buffer.format.sampleRate
+    }
+
+    private func energyBasedVADScore(_ buffer: AVAudioPCMBuffer) -> Float {
+        guard let channelData = buffer.floatChannelData?[0] else { return 0 }
+        let frameLength = vDSP_Length(buffer.frameLength)
+        guard frameLength > 0 else { return 0 }
+        var rms: Float = 0
+        vDSP_rmsqv(channelData, 1, &rms, frameLength)
+        // 会話音声の RMS ≈ 0.01〜0.05、無音 ≈ 0.001 以下
+        // 0.05 を基準値として conversationStartThreshold (0.40) と同スケールに正規化
+        return min(rms / 0.05, 1.0)
     }
 
 

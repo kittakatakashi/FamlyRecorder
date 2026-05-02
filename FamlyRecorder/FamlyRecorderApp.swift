@@ -23,7 +23,7 @@ struct FamlyRecorderApp: App {
             TabView {
                 ContentView(recorder: recorder)
                     .tabItem { Label("録音", systemImage: "mic.fill") }
-                RecordingListView()
+                RecordingListView(recorder: recorder)
                     .tabItem { Label("一覧", systemImage: "list.bullet") }
             }
         }

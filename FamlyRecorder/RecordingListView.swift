@@ -7,9 +7,11 @@ import AVFoundation
 import SwiftUI
 
 struct RecordingListView: View {
+    let recorder: RecorderManager
     @StateObject private var player = RecordingPlayer()
     @State private var groups: [DayGroup] = []
     @State private var isLoading = true
+    @State private var expandedPeriods: Set<String> = []
 
     var body: some View {
         NavigationStack {
@@ -28,15 +30,11 @@ struct RecordingListView: View {
                 }
             }
             .navigationTitle("録音一覧")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    if player.playingURL != nil {
-                        Button("停止") { player.stop() }
-                    }
-                }
-            }
         }
         .task { await loadRecordings() }
+        .onChange(of: recorder.lastSavedFileURL) { _, _ in
+            Task { await loadRecordings() }
+        }
     }
 
     private var recordingList: some View {
@@ -44,10 +42,26 @@ struct RecordingListView: View {
             ForEach(groups) { group in
                 Section {
                     ForEach(group.periods) { period in
-                        Section(period.label) {
+                        DisclosureGroup(
+                            isExpanded: Binding(
+                                get: { expandedPeriods.contains(periodKey(group, period)) },
+                                set: { open in
+                                    let key = periodKey(group, period)
+                                    if open { expandedPeriods.insert(key) } else { expandedPeriods.remove(key) }
+                                }
+                            )
+                        ) {
                             ForEach(period.items) { item in
-                                RecordingRow(item: item, player: player)
+                                NavigationLink {
+                                    PlayerView(item: item, player: player)
+                                } label: {
+                                    RecordingRow(item: item)
+                                }
                             }
+                        } label: {
+                            Text(period.label)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 } header: {
@@ -69,6 +83,13 @@ struct RecordingListView: View {
         }.value
         groups = loaded
         isLoading = false
+        if expandedPeriods.isEmpty, let g = loaded.first, let p = g.periods.first {
+            expandedPeriods.insert(periodKey(g, p))
+        }
+    }
+
+    private func periodKey(_ group: DayGroup, _ period: PeriodGroup) -> String {
+        "\(group.id.timeIntervalSince1970)-\(period.id)"
     }
 }
 
@@ -76,46 +97,21 @@ struct RecordingListView: View {
 
 private struct RecordingRow: View {
     let item: RecordingItem
-    @ObservedObject var player: RecordingPlayer
-
-    private var isThisPlaying: Bool { player.playingURL == item.url && player.isPlaying }
-    private var isThisLoaded: Bool  { player.playingURL == item.url }
 
     var body: some View {
-        Button {
-            player.toggle(url: item.url)
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: isThisPlaying ? "pause.circle.fill" : "play.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(isThisPlaying ? .orange : .accentColor)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(item.date, format: .dateTime.hour().minute())
-                        .font(.body.monospacedDigit())
-                        .foregroundStyle(.primary)
-
-                    if isThisLoaded {
-                        ProgressView(value: player.currentTime, total: max(player.duration, 1))
-                            .tint(.orange)
-                        HStack {
-                            Text(formatDuration(player.currentTime))
-                            Spacer()
-                            Text(formatDuration(player.duration))
-                        }
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                    } else {
-                        Text(formatDuration(item.duration))
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                }
+        HStack {
+            Image(systemName: "waveform")
+                .font(.title2)
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.date, format: .dateTime.hour().minute())
+                    .font(.body.monospacedDigit())
+                Text(formatDuration(item.duration))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
             }
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .padding(.vertical, 4)
     }
 
     private func formatDuration(_ seconds: TimeInterval) -> String {
@@ -186,7 +182,7 @@ private func grouped(_ items: [RecordingItem]) -> [DayGroup] {
     return byDay.keys.sorted(by: >).map { day in
         let dayItems = byDay[day]!
         let byHour = Dictionary(grouping: dayItems) { cal.component(.hour, from: $0.date) }
-        let periods = byHour.keys.sorted().map { hour -> PeriodGroup in
+        let periods = byHour.keys.sorted(by: >).map { hour -> PeriodGroup in
             let ref = cal.date(bySettingHour: hour, minute: 0, second: 0, of: day)!
             return PeriodGroup(id: "\(hour)", label: hourFormatter.string(from: ref), items: byHour[hour]!.sorted { $0.date > $1.date })
         }

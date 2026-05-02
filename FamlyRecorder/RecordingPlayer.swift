@@ -27,8 +27,9 @@ final class RecordingPlayer: NSObject, ObservableObject {
     func play(url: URL) {
         stop()
         do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-            try AVAudioSession.sharedInstance().setActive(true)
+            // RecorderManager が playAndRecord セッションを保持しているためカテゴリは変更しない
+            // overrideOutputAudioPort でスピーカー出力に切り替えるだけで再生できる
+            try AVAudioSession.sharedInstance().overrideOutputAudioPort(.speaker)
             let p = try AVAudioPlayer(contentsOf: url)
             p.delegate = self
             p.play()
@@ -56,6 +57,12 @@ final class RecordingPlayer: NSObject, ObservableObject {
         currentTime = 0
         duration = 0
         stopTimer()
+        try? AVAudioSession.sharedInstance().overrideOutputAudioPort(.none)
+    }
+
+    func seek(to time: TimeInterval) {
+        player?.currentTime = time
+        currentTime = time
     }
 
     private func startTimer() {
