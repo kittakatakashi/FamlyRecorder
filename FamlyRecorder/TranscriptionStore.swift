@@ -48,6 +48,11 @@ final class TranscriptionStore: ObservableObject {
         metadata[url.lastPathComponent]?.text
     }
 
+    func reset(url: URL) {
+        metadata.removeValue(forKey: url.lastPathComponent)
+        save()
+    }
+
     func transcribe(url: URL) async {
         let fileName = url.lastPathComponent
         guard state(for: url) == .none, !transcribingFileNames.contains(fileName) else { return }

@@ -67,7 +67,11 @@ struct RecordingListView: View {
                                         item: item,
                                         transcriptionState: transcriptionStore.state(for: item.url),
                                         transcriptionText: transcriptionStore.text(for: item.url),
-                                        isTranscribing: transcriptionStore.isTranscribing(url: item.url)
+                                        isTranscribing: transcriptionStore.isTranscribing(url: item.url),
+                                        onRetry: {
+                                            transcriptionStore.reset(url: item.url)
+                                            Task { await transcriptionStore.transcribe(url: item.url) }
+                                        }
                                     )
                                 }
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -154,6 +158,7 @@ private struct RecordingRow: View {
     let transcriptionState: TranscriptionState
     let transcriptionText: String?
     let isTranscribing: Bool
+    let onRetry: () -> Void
 
     var body: some View {
         HStack {
@@ -187,9 +192,12 @@ private struct RecordingRow: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         } else if transcriptionState == .failed {
-            Label("文字起こし失敗", systemImage: "exclamationmark.triangle")
-                .font(.caption2)
-                .foregroundStyle(.orange)
+            Button(action: onRetry) {
+                Label("再試行", systemImage: "arrow.clockwise")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
+            .buttonStyle(.plain)
         }
     }
 
