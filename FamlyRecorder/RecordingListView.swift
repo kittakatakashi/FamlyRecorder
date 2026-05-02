@@ -12,6 +12,7 @@ struct RecordingListView: View {
     @State private var groups: [DayGroup] = []
     @State private var isLoading = true
     @State private var expandedPeriods: Set<String> = []
+    @State private var itemToDelete: RecordingItem?
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -63,6 +64,13 @@ struct RecordingListView: View {
                                 } label: {
                                     RecordingRow(item: item)
                                 }
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button(role: .destructive) {
+                                        itemToDelete = item
+                                    } label: {
+                                        Label("削除", systemImage: "trash")
+                                    }
+                                }
                             }
                         } label: {
                             Text(period.label)
@@ -80,6 +88,18 @@ struct RecordingListView: View {
         }
         .listStyle(.insetGrouped)
         .refreshable { await loadRecordings() }
+        .alert("録音を削除しますか？", isPresented: Binding(
+            get: { itemToDelete != nil },
+            set: { if !$0 { itemToDelete = nil } }
+        )) {
+            Button("削除", role: .destructive) {
+                if let item = itemToDelete { deleteItem(item) }
+                itemToDelete = nil
+            }
+            Button("キャンセル", role: .cancel) { itemToDelete = nil }
+        } message: {
+            Text("この操作は取り消せません。")
+        }
     }
 
     private func loadRecordings() async {
@@ -96,6 +116,11 @@ struct RecordingListView: View {
 
     private func periodKey(_ group: DayGroup, _ period: PeriodGroup) -> String {
         "\(group.id.timeIntervalSince1970)-\(period.id)"
+    }
+
+    private func deleteItem(_ item: RecordingItem) {
+        try? FileManager.default.removeItem(at: item.url)
+        Task { await loadRecordings() }
     }
 }
 
