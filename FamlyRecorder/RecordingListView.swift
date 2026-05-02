@@ -120,7 +120,13 @@ struct RecordingListView: View {
 
     private func deleteItem(_ item: RecordingItem) {
         try? FileManager.default.removeItem(at: item.url)
-        Task { await loadRecordings() }
+        groups = groups.compactMap { day in
+            let periods = day.periods.compactMap { period in
+                let items = period.items.filter { $0.id != item.id }
+                return items.isEmpty ? nil : PeriodGroup(id: period.id, label: period.label, items: items)
+            }
+            return periods.isEmpty ? nil : DayGroup(id: day.id, dayLabel: day.dayLabel, periods: periods)
+        }
     }
 }
 
