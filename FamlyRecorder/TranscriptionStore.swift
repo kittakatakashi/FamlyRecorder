@@ -92,7 +92,11 @@ final class TranscriptionStore: ObservableObject {
                     }
                 }
             }
-            update(fileName: fileName, state: .draft, text: transcribed)
+            if transcribed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                update(fileName: fileName, state: .failed, text: nil)
+            } else {
+                update(fileName: fileName, state: .draft, text: transcribed)
+            }
         } catch {
             update(fileName: fileName, state: .failed, text: nil)
         }
