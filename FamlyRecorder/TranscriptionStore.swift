@@ -2,6 +2,7 @@
 //  TranscriptionStore.swift
 //  FamlyRecorder
 
+import Combine
 import Foundation
 import Speech
 
