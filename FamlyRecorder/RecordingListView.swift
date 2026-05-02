@@ -12,6 +12,7 @@ struct RecordingListView: View {
     @State private var groups: [DayGroup] = []
     @State private var isLoading = true
     @State private var expandedPeriods: Set<String> = []
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationStack {
@@ -34,6 +35,11 @@ struct RecordingListView: View {
         .task { await loadRecordings() }
         .onChange(of: recorder.lastSavedFileURL) { _, _ in
             Task { await loadRecordings() }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                Task { await loadRecordings() }
+            }
         }
     }
 
@@ -146,7 +152,7 @@ private func buildGroups() async -> [DayGroup] {
     )) ?? []
 
     var items: [RecordingItem] = []
-    for url in urls where url.pathExtension == "wav" {
+    for url in urls where url.pathExtension == "wav" && FileManager.default.fileExists(atPath: url.path) {
         guard let date = RecordingFileStore.date(from: url.lastPathComponent) else { continue }
         let duration = await loadDuration(url: url)
         items.append(RecordingItem(url: url, date: date, duration: duration))
