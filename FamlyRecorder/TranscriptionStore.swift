@@ -76,7 +76,6 @@ final class TranscriptionStore: ObservableObject {
 
         let request = SFSpeechURLRecognitionRequest(url: url)
         request.shouldReportPartialResults = false
-        request.requiresOnDeviceRecognition = true
 
         do {
             let transcribed: String = try await withCheckedThrowingContinuation { cont in
