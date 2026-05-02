@@ -123,8 +123,11 @@ struct RecordingListView: View {
 
     private func startPendingTranscriptions() {
         let items = groups.flatMap { $0.periods.flatMap { $0.items } }
-        for item in items where transcriptionStore.state(for: item.url) == .none {
-            Task { await transcriptionStore.transcribe(url: item.url) }
+            .filter { transcriptionStore.state(for: $0.url) == .none }
+        Task {
+            for item in items {
+                await transcriptionStore.transcribe(url: item.url)
+            }
         }
     }
 
