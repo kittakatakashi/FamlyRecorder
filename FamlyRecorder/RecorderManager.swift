@@ -13,7 +13,7 @@ import UIKit
 
 @MainActor
 final class RecorderManager: ObservableObject {
-    enum Mode {
+    enum Mode { 
         case live
         case simulated
     }
@@ -43,7 +43,7 @@ final class RecorderManager: ObservableObject {
     private let conversationStartThreshold: Float = 0.40
     private let conversationContinueThreshold: Float = 0.28
     private let minimumSpeechDurationToStart: TimeInterval = 0.35
-    private let silenceDurationToStop: TimeInterval = 5.0
+    private let silenceDurationToStop: TimeInterval = 1.2
     private let foregroundIOBufferDuration: TimeInterval = 0.02
     private let backgroundIOBufferDuration: TimeInterval = 0.12
     private let foregroundVADStride = 1
