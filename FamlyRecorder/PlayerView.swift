@@ -6,18 +6,23 @@
 import SwiftUI
 
 struct PlayerView: View {
-    let allItems: [RecordingItem]
     @ObservedObject var player: RecordingPlayer
+    @State private var items: [RecordingItem]
     @State private var currentIndex: Int
+    @State private var showDeleteAlert = false
+    @Environment(\.dismiss) private var dismiss
 
-    init(allItems: [RecordingItem], startIndex: Int, player: RecordingPlayer) {
-        self.allItems = allItems
+    let onDelete: (RecordingItem) -> Void
+
+    init(allItems: [RecordingItem], startIndex: Int, player: RecordingPlayer, onDelete: @escaping (RecordingItem) -> Void) {
+        self._items = State(initialValue: allItems)
         self._currentIndex = State(initialValue: startIndex)
         self._player = ObservedObject(wrappedValue: player)
+        self.onDelete = onDelete
     }
 
-    private var currentItem: RecordingItem { allItems[currentIndex] }
-    private var hasNext: Bool { currentIndex < allItems.count - 1 }
+    private var currentItem: RecordingItem { items[currentIndex] }
+    private var hasNext: Bool { currentIndex < items.count - 1 }
     private var hasPrev: Bool { currentIndex > 0 }
 
     private var isPlaying: Bool { player.playingURL == currentItem.url && player.isPlaying }
@@ -109,6 +114,22 @@ struct PlayerView: View {
         }
         .navigationTitle("録音再生")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(role: .destructive) {
+                    showDeleteAlert = true
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .tint(.red)
+            }
+        }
+        .alert("録音を削除しますか？", isPresented: $showDeleteAlert) {
+            Button("削除", role: .destructive) { deleteCurrentItem() }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("この操作は取り消せません。")
+        }
         .onAppear { player.play(url: currentItem.url) }
         .onDisappear { player.stop() }
         .onChange(of: player.finishedPlayingURL) { _, finishedURL in
@@ -118,9 +139,24 @@ struct PlayerView: View {
     }
 
     private func skipTo(_ index: Int) {
-        guard allItems.indices.contains(index) else { return }
+        guard items.indices.contains(index) else { return }
         currentIndex = index
         player.play(url: currentItem.url)
+    }
+
+    private func deleteCurrentItem() {
+        let item = currentItem
+        player.stop()
+        try? FileManager.default.removeItem(at: item.url)
+        onDelete(item)
+        items.remove(at: currentIndex)
+        if items.isEmpty {
+            dismiss()
+        } else {
+            let newIndex = min(currentIndex, items.count - 1)
+            currentIndex = newIndex
+            player.play(url: currentItem.url)
+        }
     }
 
     private func formatTime(_ seconds: TimeInterval) -> String {
