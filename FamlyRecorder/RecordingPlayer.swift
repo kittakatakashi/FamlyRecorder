@@ -57,6 +57,7 @@ final class RecordingPlayer: NSObject, ObservableObject {
         playingURL = nil
         currentTime = 0
         duration = 0
+        finishedPlayingURL = nil
         stopTimer()
         try? AVAudioSession.sharedInstance().overrideOutputAudioPort(.none)
     }
@@ -81,8 +82,8 @@ final class RecordingPlayer: NSObject, ObservableObject {
 
 extension RecordingPlayer: AVAudioPlayerDelegate {
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        let url = player.url  // デリゲート引数から取得（MainActorホップ前に確定）
         Task { @MainActor in
-            let url = self.playingURL
             self.stop()
             self.finishedPlayingURL = url
         }
