@@ -9,6 +9,7 @@ import SwiftUI
 struct RecordingListView: View {
     let recorder: RecorderManager
     @StateObject private var player = RecordingPlayer()
+    @StateObject private var transcriptionStore = TranscriptionStore()
     @State private var groups: [DayGroup] = []
     @State private var isLoading = true
     @State private var expandedPeriods: Set<String> = []
@@ -62,7 +63,16 @@ struct RecordingListView: View {
                                 NavigationLink {
                                     PlayerView(item: item, player: player)
                                 } label: {
-                                    RecordingRow(item: item)
+                                    RecordingRow(
+                                        item: item,
+                                        transcriptionState: transcriptionStore.state(for: item.url),
+                                        transcriptionText: transcriptionStore.text(for: item.url),
+                                        isTranscribing: transcriptionStore.isTranscribing(url: item.url),
+                                        onRetry: {
+                                            transcriptionStore.reset(url: item.url)
+                                            Task { await transcriptionStore.transcribe(url: item.url) }
+                                        }
+                                    )
                                 }
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                     Button(role: .destructive) {
@@ -112,6 +122,17 @@ struct RecordingListView: View {
         if expandedPeriods.isEmpty, let g = loaded.first, let p = g.periods.first {
             expandedPeriods.insert(periodKey(g, p))
         }
+        startPendingTranscriptions()
+    }
+
+    private func startPendingTranscriptions() {
+        let items = groups.flatMap { $0.periods.flatMap { $0.items } }
+            .filter { transcriptionStore.state(for: $0.url) == .none }
+        Task {
+            for item in items {
+                await transcriptionStore.transcribe(url: item.url)
+            }
+        }
     }
 
     private func periodKey(_ group: DayGroup, _ period: PeriodGroup) -> String {
@@ -134,6 +155,10 @@ struct RecordingListView: View {
 
 private struct RecordingRow: View {
     let item: RecordingItem
+    let transcriptionState: TranscriptionState
+    let transcriptionText: String?
+    let isTranscribing: Bool
+    let onRetry: () -> Void
 
     var body: some View {
         HStack {
@@ -146,9 +171,34 @@ private struct RecordingRow: View {
                 Text(formatDuration(item.duration))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
+                transcriptionBadge
             }
         }
         .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private var transcriptionBadge: some View {
+        if isTranscribing {
+            HStack(spacing: 4) {
+                ProgressView().scaleEffect(0.6)
+                Text("文字起こし中...")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        } else if let text = transcriptionText, transcriptionState == .draft || transcriptionState == .final {
+            Text(text)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        } else if transcriptionState == .failed {
+            Button(action: onRetry) {
+                Label("再試行", systemImage: "arrow.clockwise")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     private func formatDuration(_ seconds: TimeInterval) -> String {
