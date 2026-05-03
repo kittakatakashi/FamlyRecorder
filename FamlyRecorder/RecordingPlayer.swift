@@ -12,6 +12,7 @@ final class RecordingPlayer: NSObject, ObservableObject {
     @Published private(set) var isPlaying = false
     @Published private(set) var currentTime: TimeInterval = 0
     @Published private(set) var duration: TimeInterval = 0
+    @Published private(set) var finishedPlayingURL: URL?
 
     private var player: AVAudioPlayer?
     private var timerCancellable: AnyCancellable?
@@ -56,6 +57,7 @@ final class RecordingPlayer: NSObject, ObservableObject {
         playingURL = nil
         currentTime = 0
         duration = 0
+        finishedPlayingURL = nil
         stopTimer()
         try? AVAudioSession.sharedInstance().overrideOutputAudioPort(.none)
     }
@@ -80,6 +82,10 @@ final class RecordingPlayer: NSObject, ObservableObject {
 
 extension RecordingPlayer: AVAudioPlayerDelegate {
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        Task { @MainActor in self.stop() }
+        let url = player.url  // デリゲート引数から取得（MainActorホップ前に確定）
+        Task { @MainActor in
+            self.stop()
+            self.finishedPlayingURL = url
+        }
     }
 }

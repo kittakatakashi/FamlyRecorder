@@ -45,6 +45,11 @@ struct RecordingListView: View {
         }
     }
 
+    private var sortedAllItems: [RecordingItem] {
+        groups.flatMap { $0.periods.flatMap { $0.items } }
+            .sorted { $0.date < $1.date }
+    }
+
     private var recordingList: some View {
         List {
             ForEach(groups) { group in
@@ -61,7 +66,12 @@ struct RecordingListView: View {
                         ) {
                             ForEach(period.items) { item in
                                 NavigationLink {
-                                    PlayerView(item: item, player: player)
+                                    PlayerView(
+                                        allItems: sortedAllItems,
+                                        startIndex: sortedAllItems.firstIndex(where: { $0.id == item.id }) ?? 0,
+                                        player: player,
+                                        onDelete: deleteItem
+                                    )
                                 } label: {
                                     RecordingRow(
                                         item: item,
