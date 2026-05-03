@@ -91,8 +91,9 @@ final class RecorderManager: ObservableObject {
     }
 
     var recordingStatusText: String {
+        if isRecordingClip { return "録音中: 会話を検知して保存中です。" }
         if isVADPaused { return "停止中: 自動録音を一時停止しています。" }
-        return isRecordingClip ? "録音中: 会話を検知して保存中です。" : "待機中: 会話を検知すると自動で録音を開始します。"
+        return "待機中: 会話を検知すると自動で録音を開始します。"
     }
 
     var energyModeStatusText: String {
