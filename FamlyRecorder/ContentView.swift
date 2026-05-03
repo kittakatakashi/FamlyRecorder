@@ -54,7 +54,7 @@ struct ContentView: View {
                 .accessibilityIdentifier("recordingStatusLabel")
             Label(recorder.energyModeStatusText, systemImage: recorder.isLowPowerBackgroundMode ? "leaf.fill" : "bolt.fill")
                 .accessibilityIdentifier("energyModeStatusLabel")
-            Label(String(format: "音声信頼度: %.2f (閾値: 0.40)", recorder.speechConfidenceDebug), systemImage: "waveform.badge.mic")
+            Label(String(format: "音声信頼度: %.2f (閾値: 0.65)", recorder.speechConfidenceDebug), systemImage: "waveform.badge.mic")
                 .accessibilityIdentifier("speechConfidenceLabel")
 
             if let fileName = recorder.lastSavedFileName {
