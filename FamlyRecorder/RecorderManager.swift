@@ -33,6 +33,7 @@ final class RecorderManager: ObservableObject {
     @Published private(set) var lastSavedFileName: String?
     @Published private(set) var lastSavedFileURL: URL?
     @Published private(set) var isLowPowerBackgroundMode = false
+    @Published private(set) var isVADPaused: Bool = false
     @Published private(set) var speechConfidenceDebug: Float = 0
     @Published var errorMessage: String?
 
@@ -90,7 +91,8 @@ final class RecorderManager: ObservableObject {
     }
 
     var recordingStatusText: String {
-        isRecordingClip ? "録音中: 会話を検知して保存中です。" : "待機中: 会話を検知すると自動で録音を開始します。"
+        if isVADPaused { return "停止中: 自動録音を一時停止しています。" }
+        return isRecordingClip ? "録音中: 会話を検知して保存中です。" : "待機中: 会話を検知すると自動で録音を開始します。"
     }
 
     var energyModeStatusText: String {
@@ -273,6 +275,16 @@ final class RecorderManager: ObservableObject {
         }
     }
 
+    func setVADPaused(_ paused: Bool) {
+        guard isVADPaused != paused else { return }
+        isVADPaused = paused
+        if paused {
+            if isRecordingClip { stopClipRecording() }
+            conversationState = .idle
+            stateChangedAt = nil
+        }
+    }
+
     func setBackgroundMode(enabled: Bool) {
         guard mode == .live else { return }
         guard isLowPowerBackgroundMode != enabled else { return }
@@ -363,6 +375,7 @@ final class RecorderManager: ObservableObject {
 
     func handleVoiceActivityScore(_ score: Float, timestamp: Date = Date()) {
         guard canControlRecording else { return }
+        guard !isVADPaused else { return }
 
         switch conversationState {
         case .idle:

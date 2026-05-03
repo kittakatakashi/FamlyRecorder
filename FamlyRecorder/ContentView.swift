@@ -75,6 +75,19 @@ struct ContentView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("autoRecordingText")
+
+            Button {
+                recorder.setVADPaused(!recorder.isVADPaused)
+            } label: {
+                Label(
+                    recorder.isVADPaused ? "自動録音を再開" : "自動録音を一時停止",
+                    systemImage: recorder.isVADPaused ? "play.fill" : "pause.fill"
+                )
+            }
+            .buttonStyle(.bordered)
+            .tint(recorder.isVADPaused ? .green : .orange)
+            .disabled(!recorder.canControlRecording)
+            .accessibilityIdentifier("vadPauseButton")
         }
     }
 
