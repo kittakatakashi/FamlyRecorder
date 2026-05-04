@@ -53,6 +53,36 @@ final class TranscriptionStore: ObservableObject {
         save()
     }
 
+    var isWhisperKeySet: Bool {
+        let key = KeychainStore.load(forKey: WhisperTranscriptionService.apiKeyKeychainKey)
+        return key != nil && !(key!.isEmpty)
+    }
+
+    func saveWhisperAPIKey(_ key: String) {
+        KeychainStore.save(key, forKey: WhisperTranscriptionService.apiKeyKeychainKey)
+    }
+
+    func transcribeWithWhisper(url: URL) async {
+        let fileName = url.lastPathComponent
+        let currentState = state(for: url)
+        guard currentState == .draft || currentState == .failed else { return }
+        guard !transcribingFileNames.contains(fileName) else { return }
+
+        transcribingFileNames.insert(fileName)
+        defer { transcribingFileNames.remove(fileName) }
+
+        do {
+            let text = try await WhisperTranscriptionService().transcribe(url: url)
+            if text.isEmpty {
+                update(fileName: fileName, state: .failed, text: nil)
+            } else {
+                update(fileName: fileName, state: .final, text: text)
+            }
+        } catch {
+            update(fileName: fileName, state: .failed, text: nil)
+        }
+    }
+
     func transcribe(url: URL) async {
         let fileName = url.lastPathComponent
         guard state(for: url) == .none, !transcribingFileNames.contains(fileName) else { return }
