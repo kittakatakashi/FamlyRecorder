@@ -179,7 +179,9 @@ struct RecordingListView: View {
     }
 
     private func formatTotalDuration(_ items: [RecordingItem]) -> String {
-        let total = Int(items.reduce(0) { $0 + $1.duration })
+        let rawTotal = items.reduce(0) { $0 + $1.duration }
+        guard rawTotal.isFinite, rawTotal >= 0 else { return "--:--" }
+        let total = Int(rawTotal)
         let h = total / 3600
         let m = (total % 3600) / 60
         let s = total % 60
