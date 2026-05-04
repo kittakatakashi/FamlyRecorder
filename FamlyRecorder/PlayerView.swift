@@ -44,7 +44,7 @@ struct PlayerView: View {
                     .font(.system(size: 52, weight: .bold, design: .rounded))
             }
 
-            transcriptionArea
+            // transcriptionArea // 文字起こし機能を一時無効化
 
             Spacer()
 

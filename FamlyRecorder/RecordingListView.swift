@@ -165,7 +165,7 @@ struct RecordingListView: View {
         if expandedPeriods.isEmpty, let g = loaded.first, let p = g.periods.first {
             expandedPeriods.insert(periodKey(g, p))
         }
-        startPendingTranscriptions()
+        // startPendingTranscriptions() // 文字起こし機能を一時無効化
     }
 
     private func startPendingTranscriptions() {
@@ -234,7 +234,7 @@ private struct RecordingRow: View {
                 Text(formatDuration(item.duration))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
-                transcriptionBadge
+                // transcriptionBadge // 文字起こし機能を一時無効化
             }
         }
         .padding(.vertical, 4)
