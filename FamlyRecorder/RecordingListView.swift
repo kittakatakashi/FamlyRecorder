@@ -100,16 +100,25 @@ struct RecordingListView: View {
                                 }
                             }
                         } label: {
-                            Text(period.label)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                            HStack {
+                                Text(period.label)
+                                Spacer()
+                                Text(formatTotalDuration(period.items))
+                            }
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                         }
                     }
                 } header: {
-                    Text(group.dayLabel)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                        .textCase(nil)
+                    HStack {
+                        Text(group.dayLabel)
+                        Spacer()
+                        Text(formatTotalDuration(group.periods.flatMap { $0.items }))
+                            .fontWeight(.regular)
+                    }
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .textCase(nil)
                 }
             }
         }
@@ -167,6 +176,14 @@ struct RecordingListView: View {
                 await transcriptionStore.transcribe(url: item.url)
             }
         }
+    }
+
+    private func formatTotalDuration(_ items: [RecordingItem]) -> String {
+        let total = Int(items.reduce(0) { $0 + $1.duration })
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
     }
 
     private func periodKey(_ group: DayGroup, _ period: PeriodGroup) -> String {
