@@ -14,6 +14,9 @@ struct RecordingListView: View {
     @State private var isLoading = true
     @State private var expandedPeriods: Set<String> = []
     @State private var itemToDelete: RecordingItem?
+    @State private var showAPIKeyAlert = false
+    @State private var apiKeyInput = ""
+    @State private var pendingWhisperURL: URL?
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -81,6 +84,9 @@ struct RecordingListView: View {
                                         onRetry: {
                                             transcriptionStore.reset(url: item.url)
                                             Task { await transcriptionStore.transcribe(url: item.url) }
+                                        },
+                                        onWhisper: {
+                                            triggerWhisper(url: item.url)
                                         }
                                     )
                                 }
@@ -108,6 +114,23 @@ struct RecordingListView: View {
         }
         .listStyle(.insetGrouped)
         .refreshable { await loadRecordings() }
+        .alert("Whisper APIキー", isPresented: $showAPIKeyAlert) {
+            SecureField("sk-...", text: $apiKeyInput)
+            Button("保存して変換") {
+                transcriptionStore.saveWhisperAPIKey(apiKeyInput)
+                apiKeyInput = ""
+                if let url = pendingWhisperURL {
+                    pendingWhisperURL = nil
+                    Task { await transcriptionStore.transcribeWithWhisper(url: url) }
+                }
+            }
+            Button("キャンセル", role: .cancel) {
+                apiKeyInput = ""
+                pendingWhisperURL = nil
+            }
+        } message: {
+            Text("OpenAI APIキーを入力してください。Keychainに安全に保存されます。")
+        }
         .alert("録音を削除しますか？", isPresented: Binding(
             get: { itemToDelete != nil },
             set: { if !$0 { itemToDelete = nil } }
@@ -149,6 +172,15 @@ struct RecordingListView: View {
         "\(group.id.timeIntervalSince1970)-\(period.id)"
     }
 
+    private func triggerWhisper(url: URL) {
+        if transcriptionStore.isWhisperKeySet {
+            Task { await transcriptionStore.transcribeWithWhisper(url: url) }
+        } else {
+            pendingWhisperURL = url
+            showAPIKeyAlert = true
+        }
+    }
+
     private func deleteItem(_ item: RecordingItem) {
         try? FileManager.default.removeItem(at: item.url)
         groups = groups.compactMap { day in
@@ -169,6 +201,7 @@ private struct RecordingRow: View {
     let transcriptionText: String?
     let isTranscribing: Bool
     let onRetry: () -> Void
+    let onWhisper: () -> Void
 
     var body: some View {
         HStack {
@@ -196,18 +229,44 @@ private struct RecordingRow: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
-        } else if let text = transcriptionText, transcriptionState == .draft || transcriptionState == .final {
-            Text(text)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        } else if transcriptionState == .failed {
-            Button(action: onRetry) {
-                Label("再試行", systemImage: "arrow.clockwise")
+        } else if transcriptionState == .final, let text = transcriptionText {
+            HStack(spacing: 4) {
+                Image(systemName: "checkmark.seal.fill")
                     .font(.caption2)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.blue)
+                Text(text)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-            .buttonStyle(.plain)
+        } else if let text = transcriptionText, transcriptionState == .draft {
+            HStack(spacing: 6) {
+                Text(text)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Button(action: onWhisper) {
+                    Image(systemName: "wand.and.stars")
+                        .font(.caption2)
+                        .foregroundStyle(.blue)
+                }
+                .buttonStyle(.plain)
+            }
+        } else if transcriptionState == .failed {
+            HStack(spacing: 8) {
+                Button(action: onRetry) {
+                    Label("再試行", systemImage: "arrow.clockwise")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+                .buttonStyle(.plain)
+                Button(action: onWhisper) {
+                    Label("Whisper", systemImage: "wand.and.stars")
+                        .font(.caption2)
+                        .foregroundStyle(.blue)
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
