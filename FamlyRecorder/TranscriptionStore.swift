@@ -74,12 +74,13 @@ final class TranscriptionStore: ObservableObject {
         do {
             let text = try await WhisperTranscriptionService().transcribe(url: url)
             if text.isEmpty {
-                update(fileName: fileName, state: .failed, text: nil)
+                update(fileName: fileName, state: .failed, text: metadata[fileName]?.text)
             } else {
                 update(fileName: fileName, state: .final, text: text)
             }
         } catch {
-            update(fileName: fileName, state: .failed, text: nil)
+            // 失敗時は既存テキスト（draft）を保持してステートのみ変更する
+            update(fileName: fileName, state: .failed, text: metadata[fileName]?.text)
         }
     }
 

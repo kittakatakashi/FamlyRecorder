@@ -32,7 +32,9 @@ struct WhisperTranscriptionService {
             throw WhisperError.missingAPIKey
         }
 
-        let fileData = try Data(contentsOf: url)
+        let fileData = try await Task.detached(priority: .userInitiated) {
+            try Data(contentsOf: url)
+        }.value
         guard fileData.count <= Self.fileSizeLimit else {
             throw WhisperError.fileTooLarge
         }
