@@ -73,6 +73,7 @@ struct RecordingListView: View {
                                         allItems: sortedAllItems,
                                         startIndex: sortedAllItems.firstIndex(where: { $0.id == item.id }) ?? 0,
                                         player: player,
+                                        transcriptionStore: transcriptionStore,
                                         onDelete: deleteItem
                                     )
                                 } label: {
