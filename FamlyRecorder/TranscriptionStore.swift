@@ -28,11 +28,13 @@ final class TranscriptionStore: ObservableObject {
     @Published private(set) var metadata: [String: RecordingMetadata] = [:]
     @Published private(set) var transcribingFileNames: Set<String> = []
 
-    private let jsonURL: URL?
+    // iCloud 移行後も正しいパスを参照するため毎回動的に解決する
+    private var jsonURL: URL? {
+        try? RecordingFileStore.recordingsDirectoryURL()
+            .appendingPathComponent("transcriptions.json")
+    }
 
     init() {
-        jsonURL = try? RecordingFileStore.recordingsDirectoryURL()
-            .appendingPathComponent("transcriptions.json")
         load()
     }
 
