@@ -77,7 +77,7 @@ enum RecordingFileStore {
     // 起動時に一度呼ぶ。iCloud が利用可能なら URL を確定しローカルファイルを移行する
     static func prepareCloudDirectory() async {
         let containerURL = await Task.detached(priority: .userInitiated) {
-            FileManager.default.url(forUbiquityContainerIdentifier: nil)
+            FileManager.default.url(forUbiquityContainerIdentifier: "iCloud.kittaka.FamlyRecorder")
         }.value
 
         guard let containerURL else { return }
