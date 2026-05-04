@@ -320,7 +320,13 @@ final class RecorderManager: ObservableObject {
             do {
                 let format = try self.requireAudioFormat()
                 let destination = try self.makeOutputURL()
-                let writer = try AVAudioFile(forWriting: destination, settings: format.settings, commonFormat: format.commonFormat, interleaved: format.isInterleaved)
+                let aacSettings: [String: Any] = [
+                    AVFormatIDKey: kAudioFormatMPEG4AAC,
+                    AVSampleRateKey: 44_100,
+                    AVNumberOfChannelsKey: 1,
+                    AVEncoderBitRateKey: 128_000,
+                ]
+                let writer = try AVAudioFile(forWriting: destination, settings: aacSettings)
                 let preRoll = self.collectBufferedAudio(last: self.preRecordDuration, format: format)
 
                 for chunk in preRoll {

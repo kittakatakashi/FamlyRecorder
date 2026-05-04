@@ -322,7 +322,7 @@ private func buildGroups() async -> [DayGroup] {
     )) ?? []
 
     var items: [RecordingItem] = []
-    for url in urls where url.pathExtension == "wav" && FileManager.default.fileExists(atPath: url.path) {
+    for url in urls where ["wav", "m4a"].contains(url.pathExtension) && FileManager.default.fileExists(atPath: url.path) {
         guard let date = RecordingFileStore.date(from: url.lastPathComponent) else { continue }
         let duration = await loadDuration(url: url)
         items.append(RecordingItem(url: url, date: date, duration: duration))

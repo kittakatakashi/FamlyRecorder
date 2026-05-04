@@ -79,24 +79,34 @@ struct FamlyRecorderTests {
 
     // MARK: - RecordingFileStore
 
-    @Test func recordingFileStoreBuildsStableWavFileName() {
+    @Test func recordingFileStoreBuildsStableM4aFileName() {
         let directory = URL(fileURLWithPath: "/tmp", isDirectory: true)
         let date = Date(timeIntervalSince1970: 0)
 
         let url = RecordingFileStore.outputURL(in: directory, date: date)
 
-        #expect(url.path == "/tmp/recording-19700101-000000.wav")
+        #expect(url.path == "/tmp/recording-19700101-000000.m4a")
     }
 
-    @Test func recordingFileStoreUsesWavExtensionAndUtcTimestampFormat() {
+    @Test func recordingFileStoreUsesM4aExtensionAndUtcTimestampFormat() {
         let directory = URL(fileURLWithPath: "/tmp", isDirectory: true)
         let date = Date(timeIntervalSince1970: 1_712_345_678)
 
         let url = RecordingFileStore.outputURL(in: directory, date: date)
 
-        #expect(url.pathExtension == "wav")
+        #expect(url.pathExtension == "m4a")
         #expect(url.lastPathComponent.starts(with: "recording-"))
         #expect(url.lastPathComponent.contains("-"))
+    }
+
+    @Test func recordingFileDateParsesM4aFileName() {
+        let date = RecordingFileStore.date(from: "recording-20260429-185430.m4a")
+        #expect(date != nil)
+    }
+
+    @Test func recordingFileDateParsesWavFileNameForBackwardCompatibility() {
+        let date = RecordingFileStore.date(from: "recording-20260429-185430.wav")
+        #expect(date != nil)
     }
 
 
@@ -154,7 +164,7 @@ struct FamlyRecorderTests {
         #expect(recorder.isPrepared)
         #expect(recorder.isBuffering)
         #expect(recorder.canControlRecording)
-        #expect(recorder.bufferedSeconds == 30)
+        #expect(recorder.bufferedSeconds == 5)
     }
 
     @MainActor
@@ -171,7 +181,7 @@ struct FamlyRecorderTests {
         #expect(recorder.permissionGranted)
         #expect(recorder.isPrepared)
         #expect(recorder.isBuffering)
-        #expect(recorder.bufferedSeconds == 30)
+        #expect(recorder.bufferedSeconds == 5)
         #expect(recorder.lastSavedFileName == firstSaved)
     }
 
@@ -197,7 +207,7 @@ struct FamlyRecorderTests {
         recorder.stopClipRecording()
 
         #expect(!recorder.isRecordingClip)
-        #expect(recorder.lastSavedFileName?.hasSuffix(".wav") == true)
+        #expect(recorder.lastSavedFileName?.hasSuffix(".m4a") == true)
     }
 
     @MainActor
@@ -236,7 +246,7 @@ struct FamlyRecorderTests {
         recorder.stopClipRecording()
         let firstSavedFile = recorder.lastSavedFileName
 
-        #expect(firstSavedFile?.hasSuffix(".wav") == true)
+        #expect(firstSavedFile?.hasSuffix(".m4a") == true)
         #expect(recorder.canControlRecording)
         #expect(!recorder.isRecordingClip)
 
@@ -268,7 +278,7 @@ struct FamlyRecorderTests {
 
         #expect(recorder.permissionStatusText.contains("マイク許可済み"))
         #expect(recorder.bufferStatusText.contains("バッファ中"))
-        #expect(recorder.bufferStatusText.contains("30"))
+        #expect(recorder.bufferStatusText.contains("5"))
     }
 
 
@@ -296,10 +306,10 @@ struct FamlyRecorderTests {
         recorder.handleVoiceActivitySample(isSpeechDetected: true, timestamp: Date(timeIntervalSince1970: 200.5))
 
         recorder.handleVoiceActivitySample(isSpeechDetected: false, timestamp: Date(timeIntervalSince1970: 201.0))
-        recorder.handleVoiceActivitySample(isSpeechDetected: false, timestamp: Date(timeIntervalSince1970: 202.3))
+        recorder.handleVoiceActivitySample(isSpeechDetected: false, timestamp: Date(timeIntervalSince1970: 206.1))
 
         #expect(!recorder.isRecordingClip)
-        #expect(recorder.lastSavedFileName?.hasSuffix(".wav") == true)
+        #expect(recorder.lastSavedFileName?.hasSuffix(".m4a") == true)
     }
 
     @MainActor
@@ -363,7 +373,7 @@ struct FamlyRecorderTests {
         recorder.stopClipRecording()  // 即座に停止
 
         #expect(!recorder.isRecordingClip)
-        #expect(recorder.lastSavedFileName?.hasSuffix(".wav") == true)
+        #expect(recorder.lastSavedFileName?.hasSuffix(".m4a") == true)
         #expect(recorder.errorMessage == nil)
     }
 
