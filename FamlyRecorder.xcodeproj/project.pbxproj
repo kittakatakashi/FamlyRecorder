@@ -116,11 +116,6 @@
 			productName = FamlyRecorder;
 			productReference = B5928C892F8293BC00439FD3 /* FamlyRecorder.app */;
 			productType = "com.apple.product-type.application";
-			systemCapabilities = {
-				com.apple.iCloud = {
-					enabled = 1;
-				};
-			};
 		};
 		B5928C972F8293BF00439FD3 /* FamlyRecorderTests */ = {
 			isa = PBXNativeTarget;
@@ -400,7 +395,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = FamlyRecorder/FamlyRecorder.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 53627C4QCP;
@@ -429,7 +423,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = FamlyRecorder/FamlyRecorder.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 53627C4QCP;
