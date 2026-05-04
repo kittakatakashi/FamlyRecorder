@@ -34,6 +34,7 @@ final class RecorderManager: ObservableObject {
     @Published private(set) var lastSavedFileURL: URL?
     @Published private(set) var isLowPowerBackgroundMode = false
     @Published private(set) var isVADPaused: Bool = false
+    @Published private(set) var isUsingICloud: Bool = false
     @Published private(set) var speechConfidenceDebug: Float = 0
     @Published var errorMessage: String?
 
@@ -100,6 +101,10 @@ final class RecorderManager: ObservableObject {
         isLowPowerBackgroundMode ? "省電力モード: バックグラウンド最適化中" : "通常モード: 前景で高感度検知中"
     }
 
+    var iCloudStatusText: String {
+        isUsingICloud ? "iCloud Drive に同期中" : "ローカル保存中（iCloud未設定）"
+    }
+
     func prepare() {
         guard !isPrepared else { return }
 
@@ -131,6 +136,10 @@ final class RecorderManager: ObservableObject {
                 setupNotificationObservers()
                 isPrepared = true
                 isBuffering = true
+
+                // iCloud コンテナを非同期で確認・マイグレーション（失敗しても録音は継続）
+                await RecordingFileStore.prepareCloudDirectory()
+                isUsingICloud = RecordingFileStore.isUsingICloud
             } catch {
                 errorMessage = "録音の準備に失敗しました: \(error.localizedDescription)"
             }
