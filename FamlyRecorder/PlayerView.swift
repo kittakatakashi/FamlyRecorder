@@ -7,6 +7,7 @@ import SwiftUI
 
 struct PlayerView: View {
     @ObservedObject var player: RecordingPlayer
+    @ObservedObject var transcriptionStore: TranscriptionStore
     @State private var items: [RecordingItem]
     @State private var currentIndex: Int
     @State private var showDeleteAlert = false
@@ -14,10 +15,11 @@ struct PlayerView: View {
 
     let onDelete: (RecordingItem) -> Void
 
-    init(allItems: [RecordingItem], startIndex: Int, player: RecordingPlayer, onDelete: @escaping (RecordingItem) -> Void) {
+    init(allItems: [RecordingItem], startIndex: Int, player: RecordingPlayer, transcriptionStore: TranscriptionStore, onDelete: @escaping (RecordingItem) -> Void) {
         self._items = State(initialValue: allItems)
         self._currentIndex = State(initialValue: startIndex)
         self._player = ObservedObject(wrappedValue: player)
+        self._transcriptionStore = ObservedObject(wrappedValue: transcriptionStore)
         self.onDelete = onDelete
     }
 
@@ -41,6 +43,8 @@ struct PlayerView: View {
                 Text(currentItem.date, format: .dateTime.hour().minute())
                     .font(.system(size: 52, weight: .bold, design: .rounded))
             }
+
+            transcriptionArea
 
             Spacer()
 
@@ -135,6 +139,46 @@ struct PlayerView: View {
         .onChange(of: player.finishedPlayingURL) { _, finishedURL in
             guard finishedURL == currentItem.url, hasNext else { return }
             skipTo(currentIndex + 1)
+        }
+    }
+
+    @ViewBuilder
+    private var transcriptionArea: some View {
+        let state = transcriptionStore.state(for: currentItem.url)
+        let text = transcriptionStore.text(for: currentItem.url)
+
+        if let text, state == .draft || state == .final {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 4) {
+                    if state == .final {
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.blue)
+                        Text("確定変換")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.blue)
+                    } else {
+                        Image(systemName: "text.bubble")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text("仮変換")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                ScrollView {
+                    Text(text)
+                        .font(.callout)
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                }
+                .frame(maxHeight: 120)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .padding(.horizontal, 32)
+            .padding(.top, 8)
         }
     }
 
