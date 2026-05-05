@@ -322,8 +322,8 @@ final class RecorderManager: ObservableObject {
                 let destination = try self.makeOutputURL()
                 let aacSettings: [String: Any] = [
                     AVFormatIDKey: kAudioFormatMPEG4AAC,
-                    AVSampleRateKey: 44_100,
-                    AVNumberOfChannelsKey: 1,
+                    AVSampleRateKey: format.sampleRate,
+                    AVNumberOfChannelsKey: format.channelCount,
                     AVEncoderBitRateKey: 128_000,
                 ]
                 let writer = try AVAudioFile(forWriting: destination, settings: aacSettings)
@@ -681,7 +681,7 @@ final class RecorderManager: ObservableObject {
         guard
             let attributes = try? FileManager.default.attributesOfItem(atPath: path),
             let size = attributes[.size] as? NSNumber,
-            size.intValue > 44
+            size.intValue > 44 // WAVヘッダ最小サイズ由来。m4aは通常100バイト超なので実害なし
         else {
             return nil
         }
