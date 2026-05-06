@@ -326,7 +326,7 @@ final class RecorderManager: ObservableObject {
                     AVNumberOfChannelsKey: format.channelCount,
                     AVEncoderBitRateKey: 128_000,
                 ]
-                let writer = try AVAudioFile(forWriting: destination, settings: aacSettings)
+                let writer = try AVAudioFile(forWriting: destination, settings: aacSettings, commonFormat: format.commonFormat, interleaved: format.isInterleaved)
                 let preRoll = self.collectBufferedAudio(last: self.preRecordDuration, format: format)
 
                 for chunk in preRoll {
