@@ -320,7 +320,13 @@ final class RecorderManager: ObservableObject {
             do {
                 let format = try self.requireAudioFormat()
                 let destination = try self.makeOutputURL()
-                let writer = try AVAudioFile(forWriting: destination, settings: format.settings, commonFormat: format.commonFormat, interleaved: format.isInterleaved)
+                let aacSettings: [String: Any] = [
+                    AVFormatIDKey: kAudioFormatMPEG4AAC,
+                    AVSampleRateKey: format.sampleRate,
+                    AVNumberOfChannelsKey: format.channelCount,
+                    AVEncoderBitRateKey: 128_000,
+                ]
+                let writer = try AVAudioFile(forWriting: destination, settings: aacSettings, commonFormat: format.commonFormat, interleaved: format.isInterleaved)
                 let preRoll = self.collectBufferedAudio(last: self.preRecordDuration, format: format)
 
                 for chunk in preRoll {
@@ -675,7 +681,7 @@ final class RecorderManager: ObservableObject {
         guard
             let attributes = try? FileManager.default.attributesOfItem(atPath: path),
             let size = attributes[.size] as? NSNumber,
-            size.intValue > 44
+            size.intValue > 44 // WAVヘッダ最小サイズ由来。m4aは通常100バイト超なので実害なし
         else {
             return nil
         }

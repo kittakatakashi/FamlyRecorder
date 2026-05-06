@@ -73,7 +73,7 @@ enum RecordingFileStore {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "yyyyMMdd-HHmmss"
-        let fileName = "recording-\(formatter.string(from: date)).wav"
+        let fileName = "recording-\(formatter.string(from: date)).m4a"
         return directory.appendingPathComponent(fileName)
     }
 
@@ -84,7 +84,7 @@ enum RecordingFileStore {
         return dir
     }
 
-    // "recording-yyyyMMdd-HHmmss.wav" および "-1" サフィックス付きに対応
+    // "recording-yyyyMMdd-HHmmss.m4a"（新規）および ".wav"（既存）、"-1" サフィックス付きに対応
     static func date(from fileName: String) -> Date? {
         let base = URL(fileURLWithPath: fileName).deletingPathExtension().lastPathComponent
         guard base.hasPrefix("recording-"), base.count >= 25 else { return nil }
