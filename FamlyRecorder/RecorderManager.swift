@@ -66,12 +66,10 @@ final class RecorderManager: ObservableObject {
     private var isAudioInterrupted = false
     private var notificationObservers: [NSObjectProtocol] = []
 
-    // バックグラウンド VAD 用バンドパスフィルタ（200Hz〜4kHz、音声帯域のみ抽出）
+    // バックグラウンド VAD 用バンドパスフィルタ係数（200Hz〜4kHz、音声帯域のみ抽出）
     private struct BiquadCoeffs { let b0, b1, b2, a1, a2: Float }
     private var hpfCoeffs = BiquadCoeffs(b0: 1, b1: 0, b2: 0, a1: 0, a2: 0)
     private var lpfCoeffs = BiquadCoeffs(b0: 1, b1: 0, b2: 0, a1: 0, a2: 0)
-    private var hpfW1: Float = 0; private var hpfW2: Float = 0
-    private var lpfW1: Float = 0; private var lpfW2: Float = 0
     private var vadFilterSampleRate: Double = 0
 
     init(mode: Mode = .live) {
@@ -299,8 +297,6 @@ final class RecorderManager: ObservableObject {
         guard isLowPowerBackgroundMode != enabled else { return }
 
         isLowPowerBackgroundMode = enabled
-        // モード切り替え時にフィルタ状態をリセットして古い残響を除去
-        hpfW1 = 0; hpfW2 = 0; lpfW1 = 0; lpfW2 = 0
 
         // セッション設定は変更しない。バックグラウンド最適化は VAD stride で行う。
     }
@@ -662,7 +658,6 @@ final class RecorderManager: ObservableObject {
             a2: Float((1 - lpAlpha) / lpA0)
         )
 
-        hpfW1 = 0; hpfW2 = 0; lpfW1 = 0; lpfW2 = 0
     }
 
     private func energyBasedVADScore(_ buffer: AVAudioPCMBuffer) -> Float {
@@ -672,18 +667,24 @@ final class RecorderManager: ObservableObject {
 
         prepareBandpassFilter(sampleRate: buffer.format.sampleRate)
 
+        // フィルタ状態はバッファごとにローカル変数で保持する。
+        // backgroundVADStride により不連続なバッファが渡されるため、
+        // インスタンス変数で状態を持ち越すと古い状態から誤った演算が起きる。
+        var hw1: Float = 0, hw2: Float = 0
+        var lw1: Float = 0, lw2: Float = 0
+
         // 200Hz HPF → 4kHz LPF の直列バンドパスフィルタで音声帯域のみ抽出
         // 空調ノイズ（<200Hz）や高周波ノイズ（>4kHz）を除去して誤検知を防ぐ
         var sumSq: Float = 0
         for i in 0..<frameLength {
             let x = channelData[i]
-            let hp = hpfCoeffs.b0 * x + hpfW1
-            hpfW1 = hpfCoeffs.b1 * x - hpfCoeffs.a1 * hp + hpfW2
-            hpfW2 = hpfCoeffs.b2 * x - hpfCoeffs.a2 * hp
+            let hp = hpfCoeffs.b0 * x + hw1
+            hw1 = hpfCoeffs.b1 * x - hpfCoeffs.a1 * hp + hw2
+            hw2 = hpfCoeffs.b2 * x - hpfCoeffs.a2 * hp
 
-            let lp = lpfCoeffs.b0 * hp + lpfW1
-            lpfW1 = lpfCoeffs.b1 * hp - lpfCoeffs.a1 * lp + lpfW2
-            lpfW2 = lpfCoeffs.b2 * hp - lpfCoeffs.a2 * lp
+            let lp = lpfCoeffs.b0 * hp + lw1
+            lw1 = lpfCoeffs.b1 * hp - lpfCoeffs.a1 * lp + lw2
+            lw2 = lpfCoeffs.b2 * hp - lpfCoeffs.a2 * lp
 
             sumSq += lp * lp
         }
