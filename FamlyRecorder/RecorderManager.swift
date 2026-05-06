@@ -66,6 +66,14 @@ final class RecorderManager: ObservableObject {
     private var isAudioInterrupted = false
     private var notificationObservers: [NSObjectProtocol] = []
 
+    // バックグラウンド VAD 用バンドパスフィルタ（200Hz〜4kHz、音声帯域のみ抽出）
+    private struct BiquadCoeffs { let b0, b1, b2, a1, a2: Float }
+    private var hpfCoeffs = BiquadCoeffs(b0: 1, b1: 0, b2: 0, a1: 0, a2: 0)
+    private var lpfCoeffs = BiquadCoeffs(b0: 1, b1: 0, b2: 0, a1: 0, a2: 0)
+    private var hpfW1: Float = 0; private var hpfW2: Float = 0
+    private var lpfW1: Float = 0; private var lpfW2: Float = 0
+    private var vadFilterSampleRate: Double = 0
+
     init(mode: Mode = .live) {
         self.mode = mode
     }
@@ -291,6 +299,8 @@ final class RecorderManager: ObservableObject {
         guard isLowPowerBackgroundMode != enabled else { return }
 
         isLowPowerBackgroundMode = enabled
+        // モード切り替え時にフィルタ状態をリセットして古い残響を除去
+        hpfW1 = 0; hpfW2 = 0; lpfW1 = 0; lpfW2 = 0
 
         // セッション設定は変更しない。バックグラウンド最適化は VAD stride で行う。
     }
@@ -629,14 +639,57 @@ final class RecorderManager: ObservableObject {
         TimeInterval(buffer.frameLength) / buffer.format.sampleRate
     }
 
+    private func prepareBandpassFilter(sampleRate: Double) {
+        guard sampleRate != vadFilterSampleRate else { return }
+        vadFilterSampleRate = sampleRate
+        let q = 1.0 / sqrt(2.0) // Butterworth
+
+        let hpW0 = 2.0 * Double.pi * 200.0 / sampleRate
+        let hpAlpha = sin(hpW0) / (2.0 * q)
+        let hpCos = cos(hpW0); let hpA0 = 1.0 + hpAlpha
+        hpfCoeffs = BiquadCoeffs(
+            b0: Float((1 + hpCos) / 2 / hpA0), b1: Float(-(1 + hpCos) / hpA0),
+            b2: Float((1 + hpCos) / 2 / hpA0), a1: Float(-2 * hpCos / hpA0),
+            a2: Float((1 - hpAlpha) / hpA0)
+        )
+
+        let lpW0 = 2.0 * Double.pi * 4_000.0 / sampleRate
+        let lpAlpha = sin(lpW0) / (2.0 * q)
+        let lpCos = cos(lpW0); let lpA0 = 1.0 + lpAlpha
+        lpfCoeffs = BiquadCoeffs(
+            b0: Float((1 - lpCos) / 2 / lpA0), b1: Float((1 - lpCos) / lpA0),
+            b2: Float((1 - lpCos) / 2 / lpA0), a1: Float(-2 * lpCos / lpA0),
+            a2: Float((1 - lpAlpha) / lpA0)
+        )
+
+        hpfW1 = 0; hpfW2 = 0; lpfW1 = 0; lpfW2 = 0
+    }
+
     private func energyBasedVADScore(_ buffer: AVAudioPCMBuffer) -> Float {
         guard let channelData = buffer.floatChannelData?[0] else { return 0 }
-        let frameLength = vDSP_Length(buffer.frameLength)
+        let frameLength = Int(buffer.frameLength)
         guard frameLength > 0 else { return 0 }
-        var rms: Float = 0
-        vDSP_rmsqv(channelData, 1, &rms, frameLength)
+
+        prepareBandpassFilter(sampleRate: buffer.format.sampleRate)
+
+        // 200Hz HPF → 4kHz LPF の直列バンドパスフィルタで音声帯域のみ抽出
+        // 空調ノイズ（<200Hz）や高周波ノイズ（>4kHz）を除去して誤検知を防ぐ
+        var sumSq: Float = 0
+        for i in 0..<frameLength {
+            let x = channelData[i]
+            let hp = hpfCoeffs.b0 * x + hpfW1
+            hpfW1 = hpfCoeffs.b1 * x - hpfCoeffs.a1 * hp + hpfW2
+            hpfW2 = hpfCoeffs.b2 * x - hpfCoeffs.a2 * hp
+
+            let lp = lpfCoeffs.b0 * hp + lpfW1
+            lpfW1 = lpfCoeffs.b1 * hp - lpfCoeffs.a1 * lp + lpfW2
+            lpfW2 = lpfCoeffs.b2 * hp - lpfCoeffs.a2 * lp
+
+            sumSq += lp * lp
+        }
+
+        let rms = sqrt(sumSq / Float(frameLength))
         // 会話音声の RMS ≈ 0.01〜0.05、無音 ≈ 0.001 以下
-        // 0.05 を基準値として conversationStartThreshold (0.40) と同スケールに正規化
         return min(rms / 0.05, 1.0)
     }
 
