@@ -70,6 +70,7 @@ final class RecorderManager: ObservableObject {
     private struct BiquadCoeffs { let b0, b1, b2, a1, a2: Float }
     private var hpfCoeffs = BiquadCoeffs(b0: 1, b1: 0, b2: 0, a1: 0, a2: 0)
     private var lpfCoeffs = BiquadCoeffs(b0: 1, b1: 0, b2: 0, a1: 0, a2: 0)
+    private var bandSplitCoeffs = BiquadCoeffs(b0: 1, b1: 0, b2: 0, a1: 0, a2: 0)
     private var vadFilterSampleRate: Double = 0
 
     init(mode: Mode = .live) {
@@ -658,6 +659,15 @@ final class RecorderManager: ObservableObject {
             a2: Float((1 - lpAlpha) / lpA0)
         )
 
+        // 1000Hz LPF：bandpassedの信号をBand A（〜1000Hz）とBand B（1000〜4kHz）に分割する
+        let splitW0 = 2.0 * Double.pi * 1_000.0 / sampleRate
+        let splitAlpha = sin(splitW0) / (2.0 * q)
+        let splitCos = cos(splitW0); let splitA0 = 1.0 + splitAlpha
+        bandSplitCoeffs = BiquadCoeffs(
+            b0: Float((1 - splitCos) / 2 / splitA0), b1: Float((1 - splitCos) / splitA0),
+            b2: Float((1 - splitCos) / 2 / splitA0), a1: Float(-2 * splitCos / splitA0),
+            a2: Float((1 - splitAlpha) / splitA0)
+        )
     }
 
     private func energyBasedVADScore(_ buffer: AVAudioPCMBuffer) -> Float {
@@ -672,10 +682,13 @@ final class RecorderManager: ObservableObject {
         // インスタンス変数で状態を持ち越すと古い状態から誤った演算が起きる。
         var hw1: Float = 0, hw2: Float = 0
         var lw1: Float = 0, lw2: Float = 0
+        var sw1: Float = 0, sw2: Float = 0
 
         // 200Hz HPF → 4kHz LPF の直列バンドパスフィルタで音声帯域のみ抽出
         // 空調ノイズ（<200Hz）や高周波ノイズ（>4kHz）を除去して誤検知を防ぐ
         var sumSq: Float = 0
+        var sumSqA: Float = 0  // Band A: 200〜1000Hz（声の基本周波数帯）
+        var sumSqB: Float = 0  // Band B: 1000〜4kHz（声の倍音・子音帯）
         for i in 0..<frameLength {
             let x = channelData[i]
             let hp = hpfCoeffs.b0 * x + hw1
@@ -685,13 +698,30 @@ final class RecorderManager: ObservableObject {
             let lp = lpfCoeffs.b0 * hp + lw1
             lw1 = lpfCoeffs.b1 * hp - lpfCoeffs.a1 * lp + lw2
             lw2 = lpfCoeffs.b2 * hp - lpfCoeffs.a2 * lp
-
             sumSq += lp * lp
+
+            // bandpassed信号を1000Hz LPFでBand A/Bに分割
+            let lpA = bandSplitCoeffs.b0 * lp + sw1
+            sw1 = bandSplitCoeffs.b1 * lp - bandSplitCoeffs.a1 * lpA + sw2
+            sw2 = bandSplitCoeffs.b2 * lp - bandSplitCoeffs.a2 * lpA
+            let lpB = lp - lpA  // 補数でBand B（1000〜4kHz）を得る
+            sumSqA += lpA * lpA
+            sumSqB += lpB * lpB
         }
 
-        let rms = sqrt(sumSq / Float(frameLength))
-        // 会話音声の RMS ≈ 0.01〜0.05、無音 ≈ 0.001 以下
-        return min(rms / 0.05, 1.0)
+        let n = Float(frameLength)
+        let rms = sqrt(sumSq / n)
+        let rmsScore = min(rms / 0.05, 1.0)
+
+        // 人の声は両帯域に均等にエネルギーが分布する → bandRatioScore が高くなる
+        // 低域ノイズ（Band A偏在）や高周波ノイズ（Band B偏在）は低スコアになる
+        let rmsA = sqrt(sumSqA / n)
+        let rmsB = sqrt(sumSqB / n)
+        let bandRatioScore: Float = (rmsA + rmsB < 0.001)
+            ? 0
+            : min(rmsA, rmsB) / max(rmsA, rmsB)
+
+        return min(rmsScore * 0.5 + bandRatioScore * 0.5, 1.0)
     }
 
 
