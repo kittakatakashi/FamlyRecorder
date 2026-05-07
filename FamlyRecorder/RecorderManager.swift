@@ -202,6 +202,7 @@ final class RecorderManager: ObservableObject {
         guard mode == .live, isPrepared else { return }
         processingQueue.async { [weak self] in
             guard let self, !self.engine.isRunning else { return }
+            self.closeActiveWriterOnProcessingQueue()
             do {
                 self.speechDetector = SpeechActivityDetector()
                 try self.setupAudioSessionCategory()
@@ -215,6 +216,25 @@ final class RecorderManager: ObservableObject {
                     self.errorMessage = "フォアグラウンド復帰後の録音再開に失敗しました: \(error.localizedDescription)"
                 }
             }
+        }
+    }
+
+    // processingQueue 上で呼ぶこと。エンジン再起動前に activeWriter を安全に閉じる。
+    // 閉じずに再起動するとオーディオフォーマット不一致で書き込みエラーが発生する。
+    private func closeActiveWriterOnProcessingQueue() {
+        guard activeWriter != nil else { return }
+        let savedURL = activeRecordingURL
+        activeWriter = nil
+        activeRecordingURL = nil
+        let savedFileName = resolvedSavedFileName(from: savedURL)
+        Task { @MainActor in
+            isRecordingClip = false
+            if let savedFileName {
+                lastSavedFileName = savedFileName
+                lastSavedFileURL = savedURL
+            }
+            conversationState = .idle
+            stateChangedAt = nil
         }
     }
 
@@ -262,6 +282,7 @@ final class RecorderManager: ObservableObject {
     private func restartEngineWithFullReinit() {
         processingQueue.async { [weak self] in
             guard let self else { return }
+            self.closeActiveWriterOnProcessingQueue()
             self.engine.inputNode.removeTap(onBus: 0)
             self.hasInstalledTap = false
             if self.engine.isRunning {
