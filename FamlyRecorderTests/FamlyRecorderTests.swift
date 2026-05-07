@@ -109,7 +109,17 @@ struct FamlyRecorderTests {
         #expect(date != nil)
     }
 
+    @Test func digestDirectoryURLCreatesSubfolder() throws {
+        let dir = try RecordingFileStore.digestDirectoryURL()
+        #expect(dir.lastPathComponent == "Digest")
+        #expect(FileManager.default.fileExists(atPath: dir.path))
+    }
 
+    @Test func digestURLFormatsCorrectly() throws {
+        let day = Date(timeIntervalSince1970: 0)  // 1970-01-01 UTC
+        let url = try RecordingFileStore.digestURL(for: day)
+        #expect(url.lastPathComponent == "digest-19700101.m4a")
+    }
 
     // MARK: - RecordingFileStore.date(from:)
 

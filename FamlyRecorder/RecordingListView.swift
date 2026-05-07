@@ -10,6 +10,7 @@ struct RecordingListView: View {
     let recorder: RecorderManager
     @StateObject private var player = RecordingPlayer()
     @StateObject private var transcriptionStore = TranscriptionStore()
+    @StateObject private var digestStore = DigestStore()
     @State private var groups: [DayGroup] = []
     @State private var isLoading = true
     @State private var expandedPeriods: Set<String> = []
@@ -113,6 +114,7 @@ struct RecordingListView: View {
                     HStack {
                         Text(group.dayLabel)
                         Spacer()
+                        digestButton(for: group)
                         Text(formatTotalDuration(group.periods.flatMap { $0.items }))
                             .fontWeight(.regular)
                     }
@@ -190,6 +192,30 @@ struct RecordingListView: View {
 
     private func periodKey(_ group: DayGroup, _ period: PeriodGroup) -> String {
         "\(group.id.timeIntervalSince1970)-\(period.id)"
+    }
+
+    @ViewBuilder
+    private func digestButton(for group: DayGroup) -> some View {
+        let items = group.periods.flatMap { $0.items }
+        if digestStore.generatingDays.contains(group.id) {
+            ProgressView().scaleEffect(0.7)
+        } else if digestStore.exists(for: group.id), let url = digestStore.digestURL(for: group.id) {
+            Button {
+                player.play(url: url)
+            } label: {
+                Image(systemName: "sparkles")
+                    .foregroundStyle(.blue)
+            }
+            .buttonStyle(.plain)
+        } else {
+            Button {
+                Task { await digestStore.generate(for: group.id, items: items) }
+            } label: {
+                Image(systemName: "wand.and.stars")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     private func triggerWhisper(url: URL) {
