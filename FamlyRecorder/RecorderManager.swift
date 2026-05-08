@@ -85,7 +85,7 @@ final class RecorderManager: ObservableObject {
 
     deinit {
         notificationObservers.forEach { NotificationCenter.default.removeObserver($0) }
-        motionManager.stopAccelerometerUpdates()
+        motionManager.stopDeviceMotionUpdates()
     }
 
     var canControlRecording: Bool {
@@ -153,15 +153,15 @@ final class RecorderManager: ObservableObject {
     }
 
     private func startMotionMonitoring() {
-        guard motionManager.isAccelerometerAvailable else { return }
-        motionManager.accelerometerUpdateInterval = 0.05  // 20Hz
-        motionManager.startAccelerometerUpdates(to: .main) { [weak self] data, _ in
+        guard motionManager.isDeviceMotionAvailable else { return }
+        motionManager.deviceMotionUpdateInterval = 0.05  // 20Hz
+        // CMDeviceMotion.userAcceleration はセンサーフュージョンで重力を除去済みなので
+        // そのままベクトルの大きさを使えば横方向の動きも正確に検出できる
+        motionManager.startDeviceMotionUpdates(to: .main) { [weak self] data, _ in
             guard let self, let data else { return }
-            let a = data.acceleration
-            // 加速度センサーは重力（約1g）を含むため、全体の大きさから1gを引いてユーザー加速度を推定する
+            let a = data.userAcceleration
             let magnitude = sqrt(a.x * a.x + a.y * a.y + a.z * a.z)
-            let userAcceleration = abs(magnitude - 1.0)
-            if userAcceleration > self.motionSuppressionThreshold {
+            if magnitude > self.motionSuppressionThreshold {
                 self.motionSuppressedUntil = Date().addingTimeInterval(self.motionSuppressDuration)
             }
         }
