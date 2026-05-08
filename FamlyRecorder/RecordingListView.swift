@@ -10,6 +10,7 @@ struct RecordingListView: View {
     let recorder: RecorderManager
     @StateObject private var player = RecordingPlayer()
     @StateObject private var transcriptionStore = TranscriptionStore()
+    @StateObject private var digestStore = DigestStore()
     @State private var groups: [DayGroup] = []
     @State private var isLoading = true
     @State private var expandedPeriods: Set<String> = []
@@ -113,6 +114,7 @@ struct RecordingListView: View {
                     HStack {
                         Text(group.dayLabel)
                         Spacer()
+                        digestButton(for: group)
                         Text(formatTotalDuration(group.periods.flatMap { $0.items }))
                             .fontWeight(.regular)
                     }
@@ -153,6 +155,14 @@ struct RecordingListView: View {
         } message: {
             Text("この操作は取り消せません。")
         }
+        .alert("エラー", isPresented: Binding(
+            get: { digestStore.generationError != nil },
+            set: { if !$0 { digestStore.generationError = nil } }
+        )) {
+            Button("OK", role: .cancel) { digestStore.generationError = nil }
+        } message: {
+            Text(digestStore.generationError ?? "")
+        }
     }
 
     private func loadRecordings() async {
@@ -190,6 +200,30 @@ struct RecordingListView: View {
 
     private func periodKey(_ group: DayGroup, _ period: PeriodGroup) -> String {
         "\(group.id.timeIntervalSince1970)-\(period.id)"
+    }
+
+    @ViewBuilder
+    private func digestButton(for group: DayGroup) -> some View {
+        if digestStore.generatingDays.contains(group.id) {
+            ProgressView().scaleEffect(0.7)
+        } else if let url = digestStore.digestURL(for: group.id) {
+            let isPlaying = player.playingURL == url && player.isPlaying
+            Button {
+                if isPlaying { player.stop() } else { player.play(url: url) }
+            } label: {
+                Image(systemName: isPlaying ? "stop.circle.fill" : "sparkles")
+                    .foregroundStyle(isPlaying ? .orange : .blue)
+            }
+            .buttonStyle(.plain)
+        } else {
+            Button {
+                Task { await digestStore.generate(for: group.id, items: group.allItems) }
+            } label: {
+                Image(systemName: "wand.and.stars")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     private func triggerWhisper(url: URL) {
@@ -303,6 +337,7 @@ private struct DayGroup: Identifiable {
     let id: Date
     let dayLabel: String
     let periods: [PeriodGroup]
+    var allItems: [RecordingItem] { periods.flatMap { $0.items } }
 }
 
 private struct PeriodGroup: Identifiable {

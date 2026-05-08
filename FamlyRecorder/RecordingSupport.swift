@@ -84,6 +84,26 @@ enum RecordingFileStore {
         return dir
     }
 
+    static func digestDirectoryURL() throws -> URL {
+        let base = try recordingsDirectoryURL()
+        let dir = base.appendingPathComponent("Digest", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: nil)
+        return dir
+    }
+
+    private static let digestDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        f.dateFormat = "yyyyMMdd"
+        return f
+    }()
+
+    static func digestURL(for day: Date) throws -> URL {
+        let dir = try digestDirectoryURL()
+        return dir.appendingPathComponent("digest-\(digestDateFormatter.string(from: day)).m4a")
+    }
+
     // "recording-yyyyMMdd-HHmmss.m4a"（新規）および ".wav"（既存）、"-1" サフィックス付きに対応
     static func date(from fileName: String) -> Date? {
         let base = URL(fileURLWithPath: fileName).deletingPathExtension().lastPathComponent
