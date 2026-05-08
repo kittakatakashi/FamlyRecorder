@@ -388,6 +388,47 @@ struct FamlyRecorderTests {
     }
 
     @MainActor
+    @Test func motionSuppressionPreventsRecordingStartDuringPhysicalHandling() {
+        let recorder = RecorderManager(mode: .simulated)
+        recorder.prepare()
+
+        // 端末を動かした直後の状態を模擬
+        recorder.simulateMotionSuppression(until: Date().addingTimeInterval(1.5))
+
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 600.0))
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 600.4))
+
+        #expect(!recorder.isRecordingClip)
+    }
+
+    @MainActor
+    @Test func motionSuppressionResetsAccumulatedPossibleSpeech() {
+        let recorder = RecorderManager(mode: .simulated)
+        recorder.prepare()
+
+        // possibleSpeech に入った後、モーションを検出
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 700.0))
+        recorder.simulateMotionSuppression(until: Date().addingTimeInterval(1.5))
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 700.4))
+
+        #expect(!recorder.isRecordingClip)
+    }
+
+    @MainActor
+    @Test func motionSuppressionDoesNotStopActiveRecording() {
+        let recorder = RecorderManager(mode: .simulated)
+        recorder.prepare()
+        recorder.startClipRecording()
+        #expect(recorder.isRecordingClip)
+
+        // 録音中に端末を動かしても停止しない
+        recorder.simulateMotionSuppression(until: Date().addingTimeInterval(1.5))
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 800.0))
+
+        #expect(recorder.isRecordingClip)
+    }
+
+    @MainActor
     @Test func dismissErrorClearsErrorMessage() {
         let recorder = RecorderManager(mode: .simulated)
         recorder.errorMessage = "dummy"

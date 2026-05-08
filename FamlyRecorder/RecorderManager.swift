@@ -8,6 +8,7 @@
 @preconcurrency import AVFoundation
 import Accelerate
 import Combine
+import CoreMotion
 import Foundation
 import UIKit
 
@@ -66,6 +67,11 @@ final class RecorderManager: ObservableObject {
     private var isAudioInterrupted = false
     private var notificationObservers: [NSObjectProtocol] = []
 
+    private let motionManager = CMMotionManager()
+    private let motionSuppressionThreshold: Double = 0.4  // g（ユーザー加速度の大きさ）
+    private let motionSuppressDuration: TimeInterval = 1.5
+    private var motionSuppressedUntil: Date = .distantPast
+
     // バックグラウンド VAD 用バンドパスフィルタ係数（200Hz〜4kHz、音声帯域のみ抽出）
     private struct BiquadCoeffs { let b0, b1, b2, a1, a2: Float }
     private var hpfCoeffs = BiquadCoeffs(b0: 1, b1: 0, b2: 0, a1: 0, a2: 0)
@@ -79,6 +85,7 @@ final class RecorderManager: ObservableObject {
 
     deinit {
         notificationObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        motionManager.stopAccelerometerUpdates()
     }
 
     var canControlRecording: Bool {
@@ -136,10 +143,26 @@ final class RecorderManager: ObservableObject {
                 }
                 try engine.start()
                 setupNotificationObservers()
+                startMotionMonitoring()
                 isPrepared = true
                 isBuffering = true
             } catch {
                 errorMessage = "録音の準備に失敗しました: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func startMotionMonitoring() {
+        guard motionManager.isAccelerometerAvailable else { return }
+        motionManager.accelerometerUpdateInterval = 0.05  // 20Hz
+        motionManager.startAccelerometerUpdates(to: .main) { [weak self] data, _ in
+            guard let self, let data else { return }
+            let a = data.acceleration
+            // 加速度センサーは重力（約1g）を含むため、全体の大きさから1gを引いてユーザー加速度を推定する
+            let magnitude = sqrt(a.x * a.x + a.y * a.y + a.z * a.z)
+            let userAcceleration = abs(magnitude - 1.0)
+            if userAcceleration > self.motionSuppressionThreshold {
+                self.motionSuppressedUntil = Date().addingTimeInterval(self.motionSuppressDuration)
             }
         }
     }
@@ -412,6 +435,21 @@ final class RecorderManager: ObservableObject {
         guard canControlRecording else { return }
         guard !isVADPaused else { return }
 
+        // 端末を物理的に動かした直後（テーブル置き・ポケット収納など）は
+        // 衝撃音・布ずれ音による誤起動を防ぐため、待機中・検知中のみ判定を抑制する
+        if Date() < motionSuppressedUntil {
+            switch conversationState {
+            case .idle:
+                return
+            case .possibleSpeech:
+                conversationState = .idle
+                stateChangedAt = nil
+                return
+            case .inConversation, .possibleEnd:
+                break  // 録音済みのセッションは物理ノイズで止めない
+            }
+        }
+
         switch conversationState {
         case .idle:
             guard score >= conversationStartThreshold else { return }
@@ -464,6 +502,10 @@ final class RecorderManager: ObservableObject {
 
     func dismissError() {
         errorMessage = nil
+    }
+
+    func simulateMotionSuppression(until date: Date) {
+        motionSuppressedUntil = date
     }
 
     private func requestPermission() async throws -> Bool {
