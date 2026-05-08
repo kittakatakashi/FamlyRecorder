@@ -28,6 +28,7 @@ final class RecordingPlayer: NSObject, ObservableObject {
     func play(url: URL) {
         stop()
         do {
+            print("[RecordingPlayer] play: \(url.lastPathComponent), fileExists=\(FileManager.default.fileExists(atPath: url.path))")
             // RecorderManager が playAndRecord セッションを保持しているためカテゴリは変更しない
             // overrideOutputAudioPort でスピーカー出力に切り替えるだけで再生できる
             try AVAudioSession.sharedInstance().overrideOutputAudioPort(.speaker)

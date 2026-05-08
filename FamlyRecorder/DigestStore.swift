@@ -41,27 +41,34 @@ final class DigestStore: ObservableObject {
     }
 
     func refreshExistingDigests() {
-        guard let dir = try? RecordingFileStore.digestDirectoryURL() else { return }
-        let urls = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        guard let dir = try? RecordingFileStore.digestDirectoryURL() else {
+            print("[DigestStore] refreshExistingDigests: failed to get digestDirectoryURL")
+            return
+        }
+        let allURLs = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey])) ?? []
         // standardizedFileURL で正規化してシンボリックリンク差異を吸収
-        existingDigestURLs = Set(
-            urls
-                .filter { $0.pathExtension == "m4a" && $0.lastPathComponent.hasPrefix("digest-") }
-                .map { $0.standardizedFileURL }
-        )
-        print("[DigestStore] refreshExistingDigests: found \(existingDigestURLs.count) files in \(dir.path)")
+        // ファイルサイズ 1KB 未満は壊れたファイルとして除外する
+        let validURLs: [URL] = allURLs.compactMap { url in
+            guard url.pathExtension == "m4a", url.lastPathComponent.hasPrefix("digest-") else { return nil }
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            print("[DigestStore]   candidate: \(url.lastPathComponent), size=\(size) bytes")
+            return size >= 1000 ? url.standardizedFileURL : nil
+        }
+        existingDigestURLs = Set(validURLs)
+        print("[DigestStore] refreshExistingDigests: \(existingDigestURLs.count) valid / \(allURLs.count) total in \(dir.path)")
     }
 
     func generate(for day: Date, items: [RecordingItem]) async {
         guard !generatingDays.contains(day) else { return }
         generatingDays.insert(day)
+        print("[DigestStore] generate called: day=\(day), items=\(items.count)")
         defer { generatingDays.remove(day) }
 
         guard let outputURL = try? RecordingFileStore.digestURL(for: day) else {
             generationError = "保存先の取得に失敗しました"
             return
         }
-        print("[DigestStore] generate: day=\(day), items=\(items.count), outputURL=\(outputURL.path)")
+        print("[DigestStore] outputURL=\(outputURL.path)")
         try? FileManager.default.removeItem(at: outputURL)
 
         let chronologicalItems = items.sorted { $0.date < $1.date }
