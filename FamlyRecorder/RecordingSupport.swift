@@ -91,13 +91,17 @@ enum RecordingFileStore {
         return dir
     }
 
-    static func digestURL(for day: Date) throws -> URL {
-        let dir = try digestDirectoryURL()
+    private static let digestDateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.timeZone = TimeZone(secondsFromGMT: 0)
         f.dateFormat = "yyyyMMdd"
-        return dir.appendingPathComponent("digest-\(f.string(from: day)).m4a")
+        return f
+    }()
+
+    static func digestURL(for day: Date) throws -> URL {
+        let dir = try digestDirectoryURL()
+        return dir.appendingPathComponent("digest-\(digestDateFormatter.string(from: day)).m4a")
     }
 
     // "recording-yyyyMMdd-HHmmss.m4a"（新規）および ".wav"（既存）、"-1" サフィックス付きに対応

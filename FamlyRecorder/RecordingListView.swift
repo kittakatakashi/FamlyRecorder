@@ -155,6 +155,14 @@ struct RecordingListView: View {
         } message: {
             Text("この操作は取り消せません。")
         }
+        .alert("エラー", isPresented: Binding(
+            get: { digestStore.generationError != nil },
+            set: { if !$0 { digestStore.generationError = nil } }
+        )) {
+            Button("OK", role: .cancel) { digestStore.generationError = nil }
+        } message: {
+            Text(digestStore.generationError ?? "")
+        }
     }
 
     private func loadRecordings() async {
@@ -196,10 +204,9 @@ struct RecordingListView: View {
 
     @ViewBuilder
     private func digestButton(for group: DayGroup) -> some View {
-        let items = group.periods.flatMap { $0.items }
         if digestStore.generatingDays.contains(group.id) {
             ProgressView().scaleEffect(0.7)
-        } else if digestStore.exists(for: group.id), let url = digestStore.digestURL(for: group.id) {
+        } else if let url = digestStore.digestURL(for: group.id) {
             Button {
                 player.play(url: url)
             } label: {
@@ -209,7 +216,7 @@ struct RecordingListView: View {
             .buttonStyle(.plain)
         } else {
             Button {
-                Task { await digestStore.generate(for: group.id, items: items) }
+                Task { await digestStore.generate(for: group.id, items: group.allItems) }
             } label: {
                 Image(systemName: "wand.and.stars")
                     .foregroundStyle(.secondary)
@@ -329,6 +336,7 @@ private struct DayGroup: Identifiable {
     let id: Date
     let dayLabel: String
     let periods: [PeriodGroup]
+    var allItems: [RecordingItem] { periods.flatMap { $0.items } }
 }
 
 private struct PeriodGroup: Identifiable {

@@ -10,19 +10,40 @@ import Foundation
 @MainActor
 final class DigestStore: ObservableObject {
     @Published private(set) var generatingDays: Set<Date> = []
+    // 生成済みダイジェストURLのキャッシュ（レンダリング毎のファイルシステムI/Oを防ぐ）
+    @Published private(set) var existingDigestURLs: Set<URL> = []
+    @Published var generationError: String?
 
-    // 1日のダイジェスト上限（秒）
     static let maxDuration: TimeInterval = 120
-    // 各クリップから取り出す秒数
     private static let snippetDuration: TimeInterval = 20
+
+    private static let digestDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        f.dateFormat = "yyyyMMdd"
+        return f
+    }()
+
+    init() {
+        refreshExistingDigests()
+    }
 
     func exists(for day: Date) -> Bool {
         guard let url = try? RecordingFileStore.digestURL(for: day) else { return false }
-        return FileManager.default.fileExists(atPath: url.path)
+        return existingDigestURLs.contains(url)
     }
 
     func digestURL(for day: Date) -> URL? {
-        try? RecordingFileStore.digestURL(for: day)
+        guard let url = try? RecordingFileStore.digestURL(for: day),
+              existingDigestURLs.contains(url) else { return nil }
+        return url
+    }
+
+    func refreshExistingDigests() {
+        guard let dir = try? RecordingFileStore.digestDirectoryURL() else { return }
+        let urls = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        existingDigestURLs = Set(urls.filter { $0.pathExtension == "m4a" && $0.lastPathComponent.hasPrefix("digest-") })
     }
 
     func generate(for day: Date, items: [RecordingItem]) async {
@@ -33,30 +54,29 @@ final class DigestStore: ObservableObject {
         guard let outputURL = try? RecordingFileStore.digestURL(for: day) else { return }
         try? FileManager.default.removeItem(at: outputURL)
 
-        // 時系列昇順（出力順の基準）
-        let sorted = items.sorted { $0.date < $1.date }
+        let chronologicalItems = items.sorted { $0.date < $1.date }
 
-        // 各クリップのdurationを取得
-        var clips: [(url: URL, duration: CMTime)] = []
-        for item in sorted {
+        // 各クリップのassetとdurationを一度だけロード
+        var chronologicalClips: [(asset: AVURLAsset, duration: CMTime)] = []
+        for item in chronologicalItems {
             let asset = AVURLAsset(url: item.url)
             guard let dur = try? await asset.load(.duration), dur.seconds > 0 else { continue }
-            clips.append((item.url, dur))
+            chronologicalClips.append((asset, dur))
         }
-        guard !clips.isEmpty else { return }
+        guard !chronologicalClips.isEmpty else { return }
 
         // 長い順で選択し、各クリップから先頭snippetDuration秒を取る（合計maxDuration秒上限）
-        let byDuration = clips.sorted { $0.duration.seconds > $1.duration.seconds }
-        var selectedURLs: [URL] = []
+        let byDuration = chronologicalClips.sorted { $0.duration.seconds > $1.duration.seconds }
+        var selectedIDs = Set<ObjectIdentifier>()
         var accumulated: TimeInterval = 0
         for clip in byDuration {
             guard accumulated < Self.maxDuration else { break }
-            selectedURLs.append(clip.url)
+            selectedIDs.insert(ObjectIdentifier(clip.asset))
             accumulated += min(clip.duration.seconds, Self.snippetDuration)
         }
 
-        // 時系列順に並び替えてから結合
-        let orderedClips = clips.filter { selectedURLs.contains($0.url) }
+        // 時系列順に並び替えてから結合（選択済みassetをそのまま再利用、再生成しない）
+        let orderedClips = chronologicalClips.filter { selectedIDs.contains(ObjectIdentifier($0.asset)) }
 
         let composition = AVMutableComposition()
         guard let track = composition.addMutableTrack(
@@ -66,19 +86,28 @@ final class DigestStore: ObservableObject {
 
         var cursor = CMTime.zero
         for clip in orderedClips {
-            let asset = AVURLAsset(url: clip.url)
-            guard let srcTrack = try? await asset.loadTracks(withMediaType: .audio).first else { continue }
+            guard let srcTrack = try? await clip.asset.loadTracks(withMediaType: .audio).first else { continue }
             let trimSec = min(clip.duration.seconds, Self.snippetDuration)
             let trimmedDuration = CMTime(seconds: trimSec, preferredTimescale: 44100)
             let srcRange = CMTimeRange(start: .zero, duration: trimmedDuration)
-            try? track.insertTimeRange(srcRange, of: srcTrack, at: cursor)
-            cursor = CMTimeAdd(cursor, trimmedDuration)
+            do {
+                try track.insertTimeRange(srcRange, of: srcTrack, at: cursor)
+                cursor = CMTimeAdd(cursor, trimmedDuration)
+            } catch {
+                continue  // 失敗したclipはスキップ。cursorは進めない
+            }
         }
 
         guard let exporter = AVAssetExportSession(
             asset: composition,
             presetName: AVAssetExportPresetAppleM4A
         ) else { return }
-        try? await exporter.export(to: outputURL, as: .m4a)
+
+        do {
+            try await exporter.export(to: outputURL, as: .m4a)
+            refreshExistingDigests()
+        } catch {
+            generationError = "ダイジェストの生成に失敗しました"
+        }
     }
 }
