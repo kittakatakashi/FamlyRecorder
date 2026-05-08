@@ -41,34 +41,26 @@ final class DigestStore: ObservableObject {
     }
 
     func refreshExistingDigests() {
-        guard let dir = try? RecordingFileStore.digestDirectoryURL() else {
-            print("[DigestStore] refreshExistingDigests: failed to get digestDirectoryURL")
-            return
-        }
+        guard let dir = try? RecordingFileStore.digestDirectoryURL() else { return }
         let allURLs = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey])) ?? []
         // standardizedFileURL で正規化してシンボリックリンク差異を吸収
-        // ファイルサイズ 1KB 未満は壊れたファイルとして除外する
-        let validURLs: [URL] = allURLs.compactMap { url in
+        // 1KB 未満は壊れたファイルとして除外
+        existingDigestURLs = Set(allURLs.compactMap { url -> URL? in
             guard url.pathExtension == "m4a", url.lastPathComponent.hasPrefix("digest-") else { return nil }
             let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-            print("[DigestStore]   candidate: \(url.lastPathComponent), size=\(size) bytes")
             return size >= 1000 ? url.standardizedFileURL : nil
-        }
-        existingDigestURLs = Set(validURLs)
-        print("[DigestStore] refreshExistingDigests: \(existingDigestURLs.count) valid / \(allURLs.count) total in \(dir.path)")
+        })
     }
 
     func generate(for day: Date, items: [RecordingItem]) async {
         guard !generatingDays.contains(day) else { return }
         generatingDays.insert(day)
-        print("[DigestStore] generate called: day=\(day), items=\(items.count)")
         defer { generatingDays.remove(day) }
 
         guard let outputURL = try? RecordingFileStore.digestURL(for: day) else {
             generationError = "保存先の取得に失敗しました"
             return
         }
-        print("[DigestStore] outputURL=\(outputURL.path)")
         try? FileManager.default.removeItem(at: outputURL)
 
         let chronologicalItems = items.sorted { $0.date < $1.date }
@@ -80,7 +72,6 @@ final class DigestStore: ObservableObject {
             guard let dur = try? await asset.load(.duration), dur.seconds > 0 else { continue }
             chronologicalClips.append((asset, dur))
         }
-        print("[DigestStore] clips loaded: \(chronologicalClips.count) / \(chronologicalItems.count)")
         guard !chronologicalClips.isEmpty else {
             generationError = "有効な音声クリップが見つかりませんでした"
             return
@@ -95,7 +86,6 @@ final class DigestStore: ObservableObject {
             selectedIDs.insert(ObjectIdentifier(clip.asset))
             accumulated += min(clip.duration.seconds, Self.snippetDuration)
         }
-        print("[DigestStore] selected \(selectedIDs.count) clips, accumulated \(accumulated)s")
 
         // 時系列順に並び替えてから結合（選択済みassetをそのまま再利用、再生成しない）
         let orderedClips = chronologicalClips.filter { selectedIDs.contains(ObjectIdentifier($0.asset)) }
@@ -112,7 +102,6 @@ final class DigestStore: ObservableObject {
         // snippetDuration はCMTimeで扱い、float変換による精度誤差を防ぐ
         let snippetCMTime = CMTime(seconds: Self.snippetDuration, preferredTimescale: 44100)
         var cursor = CMTime.zero
-        var insertedCount = 0
         for clip in orderedClips {
             guard let srcTrack = try? await clip.asset.loadTracks(withMediaType: .audio).first else { continue }
             let clampedDuration = CMTimeMinimum(clip.duration, snippetCMTime)
@@ -120,13 +109,10 @@ final class DigestStore: ObservableObject {
             do {
                 try track.insertTimeRange(srcRange, of: srcTrack, at: cursor)
                 cursor = CMTimeAdd(cursor, clampedDuration)
-                insertedCount += 1
             } catch {
-                print("[DigestStore] insertTimeRange failed: \(error)")
-                continue
+                continue  // 失敗したclipはスキップ。cursorは進めない
             }
         }
-        print("[DigestStore] inserted \(insertedCount) clips, composition duration: \(composition.duration.seconds)s")
 
         guard composition.duration.seconds > 0 else {
             generationError = "音声の結合に失敗しました"
@@ -151,7 +137,6 @@ final class DigestStore: ObservableObject {
                     domain: "DigestStore", code: exporter.status.rawValue,
                     userInfo: [NSLocalizedDescriptionKey: "Export failed (status=\(exporter.status.rawValue))"]
                 ))
-                print("[DigestStore] export finished: status=\(exporter.status.rawValue), error=\(String(describing: err))")
                 continuation.resume(returning: err)
             }
         }
@@ -159,7 +144,6 @@ final class DigestStore: ObservableObject {
         if let err = exportError {
             generationError = err.localizedDescription
         } else {
-            print("[DigestStore] file exists at outputURL: \(FileManager.default.fileExists(atPath: outputURL.path))")
             refreshExistingDigests()
         }
     }

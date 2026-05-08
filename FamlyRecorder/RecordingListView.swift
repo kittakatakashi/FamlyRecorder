@@ -207,11 +207,12 @@ struct RecordingListView: View {
         if digestStore.generatingDays.contains(group.id) {
             ProgressView().scaleEffect(0.7)
         } else if let url = digestStore.digestURL(for: group.id) {
+            let isPlaying = player.playingURL == url && player.isPlaying
             Button {
-                player.play(url: url)
+                if isPlaying { player.stop() } else { player.play(url: url) }
             } label: {
-                Image(systemName: "sparkles")
-                    .foregroundStyle(.blue)
+                Image(systemName: isPlaying ? "stop.circle.fill" : "sparkles")
+                    .foregroundStyle(isPlaying ? .orange : .blue)
             }
             .buttonStyle(.plain)
         } else {
