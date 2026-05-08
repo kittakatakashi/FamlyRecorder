@@ -51,7 +51,10 @@ final class DigestStore: ObservableObject {
         generatingDays.insert(day)
         defer { generatingDays.remove(day) }
 
-        guard let outputURL = try? RecordingFileStore.digestURL(for: day) else { return }
+        guard let outputURL = try? RecordingFileStore.digestURL(for: day) else {
+            generationError = "保存先の取得に失敗しました"
+            return
+        }
         try? FileManager.default.removeItem(at: outputURL)
 
         let chronologicalItems = items.sorted { $0.date < $1.date }
@@ -63,7 +66,10 @@ final class DigestStore: ObservableObject {
             guard let dur = try? await asset.load(.duration), dur.seconds > 0 else { continue }
             chronologicalClips.append((asset, dur))
         }
-        guard !chronologicalClips.isEmpty else { return }
+        guard !chronologicalClips.isEmpty else {
+            generationError = "有効な音声クリップが見つかりませんでした"
+            return
+        }
 
         // 長い順で選択し、各クリップから先頭snippetDuration秒を取る（合計maxDuration秒上限）
         let byDuration = chronologicalClips.sorted { $0.duration.seconds > $1.duration.seconds }
@@ -82,32 +88,50 @@ final class DigestStore: ObservableObject {
         guard let track = composition.addMutableTrack(
             withMediaType: .audio,
             preferredTrackID: kCMPersistentTrackID_Invalid
-        ) else { return }
+        ) else {
+            generationError = "ダイジェストの生成に失敗しました"
+            return
+        }
 
+        // snippetDuration はCMTimeで扱い、float変換による精度誤差を防ぐ
+        let snippetCMTime = CMTime(seconds: Self.snippetDuration, preferredTimescale: 44100)
         var cursor = CMTime.zero
         for clip in orderedClips {
             guard let srcTrack = try? await clip.asset.loadTracks(withMediaType: .audio).first else { continue }
-            let trimSec = min(clip.duration.seconds, Self.snippetDuration)
-            let trimmedDuration = CMTime(seconds: trimSec, preferredTimescale: 44100)
-            let srcRange = CMTimeRange(start: .zero, duration: trimmedDuration)
+            let clampedDuration = CMTimeMinimum(clip.duration, snippetCMTime)
+            let srcRange = CMTimeRange(start: .zero, duration: clampedDuration)
             do {
                 try track.insertTimeRange(srcRange, of: srcTrack, at: cursor)
-                cursor = CMTimeAdd(cursor, trimmedDuration)
+                cursor = CMTimeAdd(cursor, clampedDuration)
             } catch {
                 continue  // 失敗したclipはスキップ。cursorは進めない
             }
         }
 
+        guard composition.duration.seconds > 0 else {
+            generationError = "音声の結合に失敗しました"
+            return
+        }
+
         guard let exporter = AVAssetExportSession(
             asset: composition,
             presetName: AVAssetExportPresetAppleM4A
-        ) else { return }
-
-        do {
-            try await exporter.export(to: outputURL, as: .m4a)
-            refreshExistingDigests()
-        } catch {
+        ) else {
             generationError = "ダイジェストの生成に失敗しました"
+            return
+        }
+
+        // exportAsynchronously を使用（iOS 17対応。export(to:as:)はiOS 18以降のみ）
+        exporter.outputURL = outputURL
+        exporter.outputFileType = .m4a
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            exporter.exportAsynchronously { continuation.resume() }
+        }
+
+        if exporter.status == .completed {
+            refreshExistingDigests()
+        } else {
+            generationError = exporter.error?.localizedDescription ?? "ダイジェストの生成に失敗しました"
         }
     }
 }
