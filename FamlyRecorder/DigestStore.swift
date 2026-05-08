@@ -31,19 +31,25 @@ final class DigestStore: ObservableObject {
 
     func exists(for day: Date) -> Bool {
         guard let url = try? RecordingFileStore.digestURL(for: day) else { return false }
-        return existingDigestURLs.contains(url)
+        return existingDigestURLs.contains(url.standardizedFileURL)
     }
 
     func digestURL(for day: Date) -> URL? {
         guard let url = try? RecordingFileStore.digestURL(for: day),
-              existingDigestURLs.contains(url) else { return nil }
+              existingDigestURLs.contains(url.standardizedFileURL) else { return nil }
         return url
     }
 
     func refreshExistingDigests() {
         guard let dir = try? RecordingFileStore.digestDirectoryURL() else { return }
         let urls = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
-        existingDigestURLs = Set(urls.filter { $0.pathExtension == "m4a" && $0.lastPathComponent.hasPrefix("digest-") })
+        // standardizedFileURL で正規化してシンボリックリンク差異を吸収
+        existingDigestURLs = Set(
+            urls
+                .filter { $0.pathExtension == "m4a" && $0.lastPathComponent.hasPrefix("digest-") }
+                .map { $0.standardizedFileURL }
+        )
+        print("[DigestStore] refreshExistingDigests: found \(existingDigestURLs.count) files in \(dir.path)")
     }
 
     func generate(for day: Date, items: [RecordingItem]) async {
@@ -55,6 +61,7 @@ final class DigestStore: ObservableObject {
             generationError = "保存先の取得に失敗しました"
             return
         }
+        print("[DigestStore] generate: day=\(day), items=\(items.count), outputURL=\(outputURL.path)")
         try? FileManager.default.removeItem(at: outputURL)
 
         let chronologicalItems = items.sorted { $0.date < $1.date }
@@ -66,6 +73,7 @@ final class DigestStore: ObservableObject {
             guard let dur = try? await asset.load(.duration), dur.seconds > 0 else { continue }
             chronologicalClips.append((asset, dur))
         }
+        print("[DigestStore] clips loaded: \(chronologicalClips.count) / \(chronologicalItems.count)")
         guard !chronologicalClips.isEmpty else {
             generationError = "有効な音声クリップが見つかりませんでした"
             return
@@ -80,6 +88,7 @@ final class DigestStore: ObservableObject {
             selectedIDs.insert(ObjectIdentifier(clip.asset))
             accumulated += min(clip.duration.seconds, Self.snippetDuration)
         }
+        print("[DigestStore] selected \(selectedIDs.count) clips, accumulated \(accumulated)s")
 
         // 時系列順に並び替えてから結合（選択済みassetをそのまま再利用、再生成しない）
         let orderedClips = chronologicalClips.filter { selectedIDs.contains(ObjectIdentifier($0.asset)) }
@@ -96,6 +105,7 @@ final class DigestStore: ObservableObject {
         // snippetDuration はCMTimeで扱い、float変換による精度誤差を防ぐ
         let snippetCMTime = CMTime(seconds: Self.snippetDuration, preferredTimescale: 44100)
         var cursor = CMTime.zero
+        var insertedCount = 0
         for clip in orderedClips {
             guard let srcTrack = try? await clip.asset.loadTracks(withMediaType: .audio).first else { continue }
             let clampedDuration = CMTimeMinimum(clip.duration, snippetCMTime)
@@ -103,10 +113,13 @@ final class DigestStore: ObservableObject {
             do {
                 try track.insertTimeRange(srcRange, of: srcTrack, at: cursor)
                 cursor = CMTimeAdd(cursor, clampedDuration)
+                insertedCount += 1
             } catch {
-                continue  // 失敗したclipはスキップ。cursorは進めない
+                print("[DigestStore] insertTimeRange failed: \(error)")
+                continue
             }
         }
+        print("[DigestStore] inserted \(insertedCount) clips, composition duration: \(composition.duration.seconds)s")
 
         guard composition.duration.seconds > 0 else {
             generationError = "音声の結合に失敗しました"
@@ -122,16 +135,25 @@ final class DigestStore: ObservableObject {
         }
 
         // exportAsynchronously を使用（iOS 17対応。export(to:as:)はiOS 18以降のみ）
+        // status は completion handler 内で読むことでレース条件を回避
         exporter.outputURL = outputURL
         exporter.outputFileType = .m4a
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            exporter.exportAsynchronously { continuation.resume() }
+        let exportError: Error? = await withCheckedContinuation { continuation in
+            exporter.exportAsynchronously {
+                let err: Error? = exporter.status == .completed ? nil : (exporter.error ?? NSError(
+                    domain: "DigestStore", code: exporter.status.rawValue,
+                    userInfo: [NSLocalizedDescriptionKey: "Export failed (status=\(exporter.status.rawValue))"]
+                ))
+                print("[DigestStore] export finished: status=\(exporter.status.rawValue), error=\(String(describing: err))")
+                continuation.resume(returning: err)
+            }
         }
 
-        if exporter.status == .completed {
-            refreshExistingDigests()
+        if let err = exportError {
+            generationError = err.localizedDescription
         } else {
-            generationError = exporter.error?.localizedDescription ?? "ダイジェストの生成に失敗しました"
+            print("[DigestStore] file exists at outputURL: \(FileManager.default.fileExists(atPath: outputURL.path))")
+            refreshExistingDigests()
         }
     }
 }
