@@ -68,9 +68,9 @@ final class RecorderManager: ObservableObject {
     private var notificationObservers: [NSObjectProtocol] = []
 
     private let motionManager = CMMotionManager()
-    private let motionSuppressionThreshold: Double = 0.4  // g（ユーザー加速度の大きさ）
+    private let motionSuppressionThreshold: Double = 0.4  // g（連続サンプル間の加速度差分）
     private let motionSuppressDuration: TimeInterval = 1.5
-    // main queue（モーションコールバック）と processingQueue（VAD）から同時アクセスされる。
+    // main queue（モーションコールバック）と @MainActor（VAD）から同時アクセスされる。
     // Date は Double 相当で arm64 上では 64bit アライメント読み書きがハードウェアレベルで原子的。
     // 1.5s ウィンドウでは stale 読みの影響は許容範囲内。
     nonisolated(unsafe) private var motionSuppressedUntil: Date = .distantPast
@@ -88,7 +88,7 @@ final class RecorderManager: ObservableObject {
 
     deinit {
         notificationObservers.forEach { NotificationCenter.default.removeObserver($0) }
-        motionManager.stopDeviceMotionUpdates()
+        motionManager.stopAccelerometerUpdates()
     }
 
     var canControlRecording: Bool {
@@ -156,17 +156,22 @@ final class RecorderManager: ObservableObject {
     }
 
     private func startMotionMonitoring() {
-        guard motionManager.isDeviceMotionAvailable else { return }
-        motionManager.deviceMotionUpdateInterval = 0.05  // 20Hz
-        // CMDeviceMotion.userAcceleration はセンサーフュージョンで重力を除去済みなので
-        // そのままベクトルの大きさを使えば横方向の動きも正確に検出できる。
-        // CMMotionManager はオーディオエンジン再起動をまたいで独立して動作し続けるため、
-        // prepare() での1回呼び出しで十分（restartEngineWithFullReinit 等では再呼び出し不要）。
-        motionManager.startDeviceMotionUpdates(to: .main) { [weak self] data, _ in
+        guard motionManager.isAccelerometerAvailable else { return }
+        motionManager.accelerometerUpdateInterval = 0.05  // 20Hz
+        // 生の加速度センサー（ジャイロ不使用）で検出する。
+        // CMDeviceMotion はジャイロを使うため AVAudioEngineConfigurationChange を誘発し録音が壊れる。
+        // 連続サンプル間の差分（ジャーク）を使うことで横方向の動きも正確に捉えられ、
+        // Codex レビューの「abs(magnitude-1)では横方向を過小評価する」問題も解消する。
+        var lastAcceleration: CMAcceleration?
+        motionManager.startAccelerometerUpdates(to: .main) { [weak self] data, _ in
             guard let self, let data else { return }
-            let a = data.userAcceleration
-            let magnitude = sqrt(a.x * a.x + a.y * a.y + a.z * a.z)
-            if magnitude > self.motionSuppressionThreshold {
+            let cur = data.acceleration
+            defer { lastAcceleration = cur }
+            guard let last = lastAcceleration else { return }
+            let dx = cur.x - last.x
+            let dy = cur.y - last.y
+            let dz = cur.z - last.z
+            if sqrt(dx*dx + dy*dy + dz*dz) > self.motionSuppressionThreshold {
                 self.motionSuppressedUntil = Date().addingTimeInterval(self.motionSuppressDuration)
             }
         }
