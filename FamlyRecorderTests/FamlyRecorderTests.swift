@@ -439,4 +439,148 @@ struct FamlyRecorderTests {
 
         #expect(recorder.errorMessage == nil)
     }
+
+    // MARK: - VAD 一時停止（V-6/V-7/V-8）
+
+    @MainActor
+    @Test func vadPausePreventsAutoStart() {
+        let recorder = RecorderManager(mode: .simulated)
+        recorder.prepare()
+        recorder.setVADPaused(true)
+
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 1000.0))
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 1000.4))
+
+        #expect(!recorder.isRecordingClip)
+    }
+
+    @MainActor
+    @Test func vadPauseStopsActiveRecording() {
+        let recorder = RecorderManager(mode: .simulated)
+        recorder.prepare()
+        recorder.startClipRecording()
+        #expect(recorder.isRecordingClip)
+
+        recorder.setVADPaused(true)
+
+        #expect(!recorder.isRecordingClip)
+        #expect(recorder.isVADPaused)
+    }
+
+    @MainActor
+    @Test func vadResumeAfterPauseAllowsAutoStart() {
+        let recorder = RecorderManager(mode: .simulated)
+        recorder.prepare()
+        recorder.setVADPaused(true)
+        recorder.setVADPaused(false)
+
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 1100.0))
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 1100.4))
+
+        #expect(recorder.isRecordingClip)
+    }
+
+    // MARK: - possibleEnd → 会話再開（V-3）
+
+    @MainActor
+    @Test func possibleEndResumesToInConversationWhenSpeechReturns() {
+        let recorder = RecorderManager(mode: .simulated)
+        recorder.prepare()
+
+        // 会話を開始
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 1200.0))
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 1200.4))
+        #expect(recorder.isRecordingClip)
+
+        // 沈黙 → possibleEnd
+        recorder.handleVoiceActivityScore(0.3, timestamp: Date(timeIntervalSince1970: 1201.0))
+
+        // 会話再開 → inConversation に戻り stateChangedAt がリセットされる
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 1202.0))
+
+        // 再開から 4.9s の沈黙（合計 5s 未満）→ まだ録音中
+        recorder.handleVoiceActivityScore(0.3, timestamp: Date(timeIntervalSince1970: 1203.0))
+        recorder.handleVoiceActivityScore(0.3, timestamp: Date(timeIntervalSince1970: 1206.9))
+
+        #expect(recorder.isRecordingClip)
+    }
+
+    @MainActor
+    @Test func possibleEndStopsRecordingAfterSilenceWindowFromResume() {
+        let recorder = RecorderManager(mode: .simulated)
+        recorder.prepare()
+
+        // 会話を開始
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 1300.0))
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 1300.4))
+
+        // 沈黙 → possibleEnd
+        recorder.handleVoiceActivityScore(0.3, timestamp: Date(timeIntervalSince1970: 1301.0))
+
+        // 会話再開 → inConversation（stateChangedAt = 1302）
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 1302.0))
+
+        // 再開から 5.1s の沈黙 → 停止
+        recorder.handleVoiceActivityScore(0.3, timestamp: Date(timeIntervalSince1970: 1303.0))
+        recorder.handleVoiceActivityScore(0.3, timestamp: Date(timeIntervalSince1970: 1307.2))
+
+        #expect(!recorder.isRecordingClip)
+        #expect(recorder.lastSavedFileName?.hasSuffix(".m4a") == true)
+    }
+
+    // MARK: - モーション抑制の期限切れ（M-4）
+
+    #if DEBUG
+    @MainActor
+    @Test func recordingStartsAfterMotionSuppressionExpires() {
+        let recorder = RecorderManager(mode: .simulated)
+        recorder.prepare()
+
+        // 抑制ウィンドウをすでに過去に設定（期限切れ）
+        recorder.simulateMotionSuppression(until: Date().addingTimeInterval(-0.1))
+
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 1400.0))
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 1400.4))
+
+        #expect(recorder.isRecordingClip)
+    }
+    #endif
+
+    // MARK: - 高速スタート/ストップの安定性（C-2/C-3）
+
+    @MainActor
+    @Test func rapidStartStopCyclesDoNotCorruptState() {
+        let recorder = RecorderManager(mode: .simulated)
+        recorder.prepare()
+
+        for _ in 0..<5 {
+            recorder.startClipRecording()
+            recorder.stopClipRecording()
+        }
+
+        #expect(!recorder.isRecordingClip)
+        #expect(recorder.errorMessage == nil)
+        #expect(recorder.canControlRecording)
+    }
+
+    @MainActor
+    @Test func secondRecordingCycleWorksAfterFirstCompletes() {
+        let recorder = RecorderManager(mode: .simulated)
+        recorder.prepare()
+
+        // 1サイクル目：VAD 自動開始→自動停止
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 1500.0))
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 1500.4))
+        recorder.handleVoiceActivityScore(0.3, timestamp: Date(timeIntervalSince1970: 1501.0))
+        recorder.handleVoiceActivityScore(0.3, timestamp: Date(timeIntervalSince1970: 1506.1))
+        #expect(!recorder.isRecordingClip)
+        let firstFile = recorder.lastSavedFileName
+        #expect(firstFile != nil)
+
+        // 2サイクル目：同様に自動開始できる
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 1510.0))
+        recorder.handleVoiceActivityScore(0.9, timestamp: Date(timeIntervalSince1970: 1510.4))
+        #expect(recorder.isRecordingClip)
+        #expect(recorder.lastSavedFileName == nil) // 新しいクリップ開始直後はnil
+    }
 }
