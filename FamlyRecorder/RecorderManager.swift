@@ -207,6 +207,7 @@ final class RecorderManager: ObservableObject {
             do {
                 try self.setupAudioSessionCategory()
                 if !self.hasInstalledTap {
+                    self.ringBuffer = TimedRingBuffer<AVAudioPCMBuffer>()
                     try self.installTapIfNeeded()
                     if let format = self.audioFormat {
                         try self.speechDetector.prepare(format: format)
@@ -226,6 +227,7 @@ final class RecorderManager: ObservableObject {
         processingQueue.async { [weak self] in
             guard let self, !self.engine.isRunning else { return }
             self.closeActiveWriterOnProcessingQueue()
+            self.ringBuffer = TimedRingBuffer<AVAudioPCMBuffer>()
             do {
                 self.speechDetector = SpeechActivityDetector()
                 try self.setupAudioSessionCategory()
@@ -306,6 +308,9 @@ final class RecorderManager: ObservableObject {
         processingQueue.async { [weak self] in
             guard let self else { return }
             self.closeActiveWriterOnProcessingQueue()
+            // エンジン再起動後はフォーマットが変わる可能性があるため、旧バッファを捨てる。
+            // 残しておくと新フォーマットの AVAudioFile に旧バッファを書き込んで !dat エラーになる。
+            self.ringBuffer = TimedRingBuffer<AVAudioPCMBuffer>()
             self.engine.inputNode.removeTap(onBus: 0)
             self.hasInstalledTap = false
             if self.engine.isRunning {
