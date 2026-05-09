@@ -70,7 +70,10 @@ final class RecorderManager: ObservableObject {
     private let motionManager = CMMotionManager()
     private let motionSuppressionThreshold: Double = 0.4  // g（ユーザー加速度の大きさ）
     private let motionSuppressDuration: TimeInterval = 1.5
-    private var motionSuppressedUntil: Date = .distantPast
+    // main queue（モーションコールバック）と processingQueue（VAD）から同時アクセスされる。
+    // Date は Double 相当で arm64 上では 64bit アライメント読み書きがハードウェアレベルで原子的。
+    // 1.5s ウィンドウでは stale 読みの影響は許容範囲内。
+    nonisolated(unsafe) private var motionSuppressedUntil: Date = .distantPast
 
     // バックグラウンド VAD 用バンドパスフィルタ係数（200Hz〜4kHz、音声帯域のみ抽出）
     private struct BiquadCoeffs { let b0, b1, b2, a1, a2: Float }
@@ -156,7 +159,9 @@ final class RecorderManager: ObservableObject {
         guard motionManager.isDeviceMotionAvailable else { return }
         motionManager.deviceMotionUpdateInterval = 0.05  // 20Hz
         // CMDeviceMotion.userAcceleration はセンサーフュージョンで重力を除去済みなので
-        // そのままベクトルの大きさを使えば横方向の動きも正確に検出できる
+        // そのままベクトルの大きさを使えば横方向の動きも正確に検出できる。
+        // CMMotionManager はオーディオエンジン再起動をまたいで独立して動作し続けるため、
+        // prepare() での1回呼び出しで十分（restartEngineWithFullReinit 等では再呼び出し不要）。
         motionManager.startDeviceMotionUpdates(to: .main) { [weak self] data, _ in
             guard let self, let data else { return }
             let a = data.userAcceleration
@@ -509,9 +514,11 @@ final class RecorderManager: ObservableObject {
         errorMessage = nil
     }
 
+    #if DEBUG
     func simulateMotionSuppression(until date: Date) {
         motionSuppressedUntil = date
     }
+    #endif
 
     private func requestPermission() async throws -> Bool {
         switch AVAudioApplication.shared.recordPermission {

@@ -387,6 +387,7 @@ struct FamlyRecorderTests {
         #expect(recorder.errorMessage == nil)
     }
 
+    #if DEBUG
     @MainActor
     @Test func motionSuppressionPreventsRecordingStartDuringPhysicalHandling() {
         let recorder = RecorderManager(mode: .simulated)
@@ -427,6 +428,7 @@ struct FamlyRecorderTests {
 
         #expect(recorder.isRecordingClip)
     }
+    #endif
 
     @MainActor
     @Test func dismissErrorClearsErrorMessage() {
