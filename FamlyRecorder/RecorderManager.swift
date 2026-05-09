@@ -68,7 +68,7 @@ final class RecorderManager: ObservableObject {
     private var notificationObservers: [NSObjectProtocol] = []
 
     private let motionManager = CMMotionManager()
-    private let motionSuppressionThreshold: Double = 0.4  // g（連続サンプル間の加速度差分）
+    private let motionSuppressionThreshold: Double = 0.4  // g/sample @ 20Hz（連続サンプル50ms間の加速度差分）
     private let motionSuppressDuration: TimeInterval = 1.5
     // main queue（モーションコールバック）と @MainActor（VAD）から同時アクセスされる。
     // Date は Double 相当で arm64 上では 64bit アライメント読み書きがハードウェアレベルで原子的。
