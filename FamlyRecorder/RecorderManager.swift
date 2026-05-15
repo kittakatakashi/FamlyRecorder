@@ -8,6 +8,7 @@
 @preconcurrency import AVFoundation
 import Accelerate
 import Combine
+import CoreMotion
 import Foundation
 import UIKit
 
@@ -66,6 +67,14 @@ final class RecorderManager: ObservableObject {
     private var isAudioInterrupted = false
     private var notificationObservers: [NSObjectProtocol] = []
 
+    private let motionManager = CMMotionManager()
+    private let motionSuppressionThreshold: Double = 0.4  // g/sample @ 20Hz（連続サンプル50ms間の加速度差分）
+    private let motionSuppressDuration: TimeInterval = 1.5
+    // main queue（モーションコールバック）と @MainActor（VAD）から同時アクセスされる。
+    // Date は Double 相当で arm64 上では 64bit アライメント読み書きがハードウェアレベルで原子的。
+    // 1.5s ウィンドウでは stale 読みの影響は許容範囲内。
+    nonisolated(unsafe) private var motionSuppressedUntil: Date = .distantPast
+
     // バックグラウンド VAD 用バンドパスフィルタ係数（200Hz〜4kHz、音声帯域のみ抽出）
     private struct BiquadCoeffs { let b0, b1, b2, a1, a2: Float }
     private var hpfCoeffs = BiquadCoeffs(b0: 1, b1: 0, b2: 0, a1: 0, a2: 0)
@@ -79,6 +88,7 @@ final class RecorderManager: ObservableObject {
 
     deinit {
         notificationObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        motionManager.stopAccelerometerUpdates()
     }
 
     var canControlRecording: Bool {
@@ -136,10 +146,33 @@ final class RecorderManager: ObservableObject {
                 }
                 try engine.start()
                 setupNotificationObservers()
+                startMotionMonitoring()
                 isPrepared = true
                 isBuffering = true
             } catch {
                 errorMessage = "録音の準備に失敗しました: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func startMotionMonitoring() {
+        guard motionManager.isAccelerometerAvailable else { return }
+        motionManager.accelerometerUpdateInterval = 0.05  // 20Hz
+        // 生の加速度センサー（ジャイロ不使用）で検出する。
+        // CMDeviceMotion はジャイロを使うため AVAudioEngineConfigurationChange を誘発し録音が壊れる。
+        // 連続サンプル間の差分（ジャーク）を使うことで横方向の動きも正確に捉えられ、
+        // Codex レビューの「abs(magnitude-1)では横方向を過小評価する」問題も解消する。
+        var lastAcceleration: CMAcceleration?
+        motionManager.startAccelerometerUpdates(to: .main) { [weak self] data, _ in
+            guard let self, let data else { return }
+            let cur = data.acceleration
+            defer { lastAcceleration = cur }
+            guard let last = lastAcceleration else { return }
+            let dx = cur.x - last.x
+            let dy = cur.y - last.y
+            let dz = cur.z - last.z
+            if sqrt(dx*dx + dy*dy + dz*dz) > self.motionSuppressionThreshold {
+                self.motionSuppressedUntil = Date().addingTimeInterval(self.motionSuppressDuration)
             }
         }
     }
@@ -184,6 +217,7 @@ final class RecorderManager: ObservableObject {
             do {
                 try self.setupAudioSessionCategory()
                 if !self.hasInstalledTap {
+                    self.ringBuffer = TimedRingBuffer<AVAudioPCMBuffer>()
                     try self.installTapIfNeeded()
                     if let format = self.audioFormat {
                         try self.speechDetector.prepare(format: format)
@@ -203,6 +237,7 @@ final class RecorderManager: ObservableObject {
         processingQueue.async { [weak self] in
             guard let self, !self.engine.isRunning else { return }
             self.closeActiveWriterOnProcessingQueue()
+            self.ringBuffer = TimedRingBuffer<AVAudioPCMBuffer>()
             do {
                 self.speechDetector = SpeechActivityDetector()
                 try self.setupAudioSessionCategory()
@@ -283,6 +318,9 @@ final class RecorderManager: ObservableObject {
         processingQueue.async { [weak self] in
             guard let self else { return }
             self.closeActiveWriterOnProcessingQueue()
+            // エンジン再起動後はフォーマットが変わる可能性があるため、旧バッファを捨てる。
+            // 残しておくと新フォーマットの AVAudioFile に旧バッファを書き込んで !dat エラーになる。
+            self.ringBuffer = TimedRingBuffer<AVAudioPCMBuffer>()
             self.engine.inputNode.removeTap(onBus: 0)
             self.hasInstalledTap = false
             if self.engine.isRunning {
@@ -412,6 +450,21 @@ final class RecorderManager: ObservableObject {
         guard canControlRecording else { return }
         guard !isVADPaused else { return }
 
+        // 端末を物理的に動かした直後（テーブル置き・ポケット収納など）は
+        // 衝撃音・布ずれ音による誤起動を防ぐため、待機中・検知中のみ判定を抑制する
+        if Date() < motionSuppressedUntil {
+            switch conversationState {
+            case .idle:
+                return
+            case .possibleSpeech:
+                conversationState = .idle
+                stateChangedAt = nil
+                return
+            case .inConversation, .possibleEnd:
+                break  // 録音済みのセッションは物理ノイズで止めない
+            }
+        }
+
         switch conversationState {
         case .idle:
             guard score >= conversationStartThreshold else { return }
@@ -465,6 +518,12 @@ final class RecorderManager: ObservableObject {
     func dismissError() {
         errorMessage = nil
     }
+
+    #if DEBUG
+    func simulateMotionSuppression(until date: Date) {
+        motionSuppressedUntil = date
+    }
+    #endif
 
     private func requestPermission() async throws -> Bool {
         switch AVAudioApplication.shared.recordPermission {
